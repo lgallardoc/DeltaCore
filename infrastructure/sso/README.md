@@ -12,3 +12,5 @@ docker compose --env-file ../../.env -f docker-compose.yml up -d
 Admin console: `http://localhost:${KEYCLOAK_HTTP_PORT}` (`KEYCLOAK_ADMIN` / `KEYCLOAK_ADMIN_PASSWORD`).
 
 Realm import: `deltacore-realm.json`. Redirect URIs are static (`http://localhost:5173`). If `VITE_DEV_PORT` changes, edit the JSON and recreate the container so `--import-realm` runs again.
+
+SPA routes after login: `/compare`, `/dictionary`, `/catalog`, `/jobs`.

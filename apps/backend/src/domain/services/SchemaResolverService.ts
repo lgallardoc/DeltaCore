@@ -1,5 +1,7 @@
 import type { IOdbcConnection, ISqlQueryProvider } from "@deltacore/shared";
 import type { ISchemaResolver } from "../ports/ISchemaResolver.js";
+import { catalogSchemaName } from "../catalogRow.js";
+import { quoteSchemaList } from "../sqlLiterals.js";
 
 export class SchemaResolverService implements ISchemaResolver {
   constructor(private readonly queryProvider: ISqlQueryProvider) {}
@@ -13,14 +15,17 @@ export class SchemaResolverService implements ISchemaResolver {
       throw new Error("No search path (*LIBL) defined for this data source.");
     }
 
-    const schemaList = searchPath.map((schema) => `'${schema}'`).join(",");
     const sql = this.queryProvider.buildQuery(
       connection.getEngineType(),
       "find_table_schemas",
-      { tableName, schemaList },
+      { tableName, schemaList: quoteSchemaList(searchPath) },
     );
 
-    const foundSchemas = await connection.query<{ schema_name: string }>(sql);
+    const foundSchemas = (
+      await connection.query<Record<string, unknown>>(sql)
+    )
+      .map((row) => catalogSchemaName(row))
+      .filter(Boolean);
 
     if (foundSchemas.length === 0) {
       throw new Error(
@@ -28,16 +33,16 @@ export class SchemaResolverService implements ISchemaResolver {
       );
     }
 
-    let winningSchema = foundSchemas[0].schema_name;
+    let winningSchema = foundSchemas[0];
     let highestPriorityIndex = searchPath.length;
 
-    for (const row of foundSchemas) {
+    for (const schemaName of foundSchemas) {
       const index = searchPath.findIndex(
-        (schema) => schema.toUpperCase() === row.schema_name.toUpperCase(),
+        (schema) => schema.toUpperCase() === schemaName.toUpperCase(),
       );
       if (index !== -1 && index < highestPriorityIndex) {
         highestPriorityIndex = index;
-        winningSchema = row.schema_name;
+        winningSchema = schemaName;
       }
     }
 

@@ -2,6 +2,10 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthProvider";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { apiClient } from "./auth/api.client";
+import { Layout } from "./components/layout/Layout";
+import { CatalogView } from "./features/catalog/CatalogView";
+import { DictionaryView } from "./features/dictionary/DictionaryView";
+import { CompareView } from "./features/compare/CompareView";
 import { JobDetail } from "./features/jobs/JobDetail";
 import { JobList } from "./features/jobs/JobList";
 
@@ -12,26 +16,25 @@ export function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Navigate to="/jobs" replace />} />
           <Route
-            path="/jobs"
             element={
               <ProtectedRoute moduleName={JOBS_MODULE}>
-                <JobList />
+                <Layout />
               </ProtectedRoute>
             }
-          />
-          <Route
-            path="/jobs/:jobId"
-            element={
-              <ProtectedRoute moduleName={JOBS_MODULE}>
+          >
+            <Route path="/" element={<Navigate to="/compare" replace />} />
+            <Route path="/compare" element={<CompareView />} />
+            <Route path="/dictionary" element={<DictionaryView />} />
+            <Route path="/catalog" element={<CatalogView />} />
+            <Route path="/jobs" element={<JobList />} />
+            <Route
+              path="/jobs/:jobId"
+              element={
                 <JobDetail
                   onRunComparison={async (jobId) => {
-                    const dsn =
-                      import.meta.env.VITE_DB2_ODBC_DSN ?? "AZ7DB";
-                    const tables = (
-                      import.meta.env.VITE_SCHEMA_COMPARE_TABLES ?? "ACCCR7"
-                    )
+                    const dsn = import.meta.env.VITE_DB2_ODBC_DSN ?? "AZ7DB";
+                    const tables = (import.meta.env.VITE_SCHEMA_COMPARE_TABLES ?? "ACCCR7")
                       .split(",")
                       .map((name) => name.trim())
                       .filter(Boolean);
@@ -42,9 +45,9 @@ export function App() {
                     });
                   }}
                 />
-              </ProtectedRoute>
-            }
-          />
+              }
+            />
+          </Route>
         </Routes>
       </BrowserRouter>
     </AuthProvider>

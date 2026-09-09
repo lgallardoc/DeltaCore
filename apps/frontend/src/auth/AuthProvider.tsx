@@ -13,17 +13,25 @@ export interface IAuthContext {
   isInitialized: boolean;
   token: string | null;
   userId: string | null;
+  displayName: string;
   login: () => Promise<void>;
   logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<IAuthContext | null>(null);
 
-function tokenFromKeycloak(): Pick<IAuthContext, "isAuthenticated" | "token" | "userId"> {
+function tokenFromKeycloak(): Pick<
+  IAuthContext,
+  "isAuthenticated" | "token" | "userId" | "displayName"
+> {
+  const parsed = keycloak.tokenParsed as
+    | { sub?: string; preferred_username?: string; email?: string; name?: string }
+    | undefined;
   return {
     isAuthenticated: Boolean(keycloak.authenticated),
     token: keycloak.token ?? null,
-    userId: keycloak.tokenParsed?.sub ?? null,
+    userId: parsed?.sub ?? null,
+    displayName: parsed?.name ?? parsed?.preferred_username ?? parsed?.email ?? "operador",
   };
 }
 
@@ -61,6 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: session.isAuthenticated,
       token: session.token,
       userId: session.userId,
+      displayName: session.displayName,
       login: async () => {
         await keycloak.login();
       },

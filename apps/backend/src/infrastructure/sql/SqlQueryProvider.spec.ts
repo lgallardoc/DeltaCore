@@ -53,4 +53,23 @@ describe("SqlQueryProvider", () => {
     new SqlQueryProvider(root, files).buildQuery("sqlserver", "schema-compare", {});
     expect(seen[0]).toBe(path.join(root, "sqlserver", "schema-compare.sql"));
   });
+
+  it("loads db2-ibmi when DB2_CATALOG=ibmi", () => {
+    const previous = process.env.DB2_CATALOG;
+    process.env.DB2_CATALOG = "ibmi";
+    const files = new InMemorySqlFiles({
+      "db2-ibmi/list-schemas.sql": "SELECT '{{schemaList}}' FROM QSYS2.SYSSCHEMAS",
+    });
+    const sql = new SqlQueryProvider("/virtual/sql-dialects", files).buildQuery(
+      "db2",
+      "list-schemas",
+      { schemaList: "'AZBASWQA'" },
+    );
+    expect(sql).toContain("QSYS2.SYSSCHEMAS");
+    if (previous === undefined) {
+      delete process.env.DB2_CATALOG;
+    } else {
+      process.env.DB2_CATALOG = previous;
+    }
+  });
 });

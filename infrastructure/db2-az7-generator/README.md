@@ -11,3 +11,5 @@ npm run build:docker
 ```
 
 Apple Silicon: `--platform linux/amd64`, image `icr.io/db2_community/db2`.
+
+This container is the usual **lab** DSN (`DB2_ODBC_DSN` / `AZ7DB`). A second compare source is a different ODBC DSN (see repo README, `biz_data_sources`), not a second Docker service unless you add one.

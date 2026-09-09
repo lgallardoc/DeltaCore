@@ -1,0 +1,12 @@
+SELECT COLNAME AS column_name
+FROM SYSCAT.KEYCOLUSE
+WHERE TABSCHEMA = '{{schema}}'
+  AND TABNAME = '{{tableName}}'
+  AND CONSTNAME IN (
+    SELECT CONSTNAME
+    FROM SYSCAT.TABCONST
+    WHERE TABSCHEMA = '{{schema}}'
+      AND TABNAME = '{{tableName}}'
+      AND TYPE = 'P'
+  )
+ORDER BY COLSEQ

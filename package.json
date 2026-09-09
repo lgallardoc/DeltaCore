@@ -15,9 +15,11 @@
     "dev:frontend": "npm run dev -w @deltacore/frontend",
     "status": "bash scripts/status.sh",
     "stop": "bash scripts/stop.sh",
-    "stop:sso": "bash scripts/stop.sh --keep-az7",
+    "stop:apps": "bash scripts/stop.sh --apps-only",
+    "stop:sso": "bash scripts/stop.sh --keep-az7 --infra-only",
     "test": "npm run test --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
+    "cli": "bash scripts/cli.sh",
     "init:db": "npm run init:db -w @deltacore/backend"
   },
   "engines": {

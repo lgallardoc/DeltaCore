@@ -19,8 +19,12 @@ export class UnixOdbcConnection implements IOdbcConnection {
   }
 
   async query<T>(sql: string): Promise<T[]> {
-    const rows = await this.conn.query<T>(sql);
-    return [...rows];
+    try {
+      const rows = await this.conn.query<T>(sql);
+      return [...rows].map((row) => lowercaseKeys(row));
+    } catch (error) {
+      throw wrapOdbcError(error, sql);
+    }
   }
 
   async close(): Promise<void> {
@@ -52,4 +56,27 @@ export async function openUnixOdbcConnection(
   throw lastError instanceof Error
     ? lastError
     : new Error(`ODBC connect failed for DSN ${dsn}`);
+}
+
+function lowercaseKeys<T>(row: T): T {
+  if (!row || typeof row !== "object") {
+    return row;
+  }
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(row as Record<string, unknown>)) {
+    out[key.toLowerCase()] = value;
+  }
+  return out as T;
+}
+
+function wrapOdbcError(error: unknown, sql: string): Error {
+  const odbcErrors = (error as { odbcErrors?: Array<{ message?: string; state?: string }> })
+    .odbcErrors;
+  const detail =
+    odbcErrors
+      ?.map((item) => `${item.state ?? "?"}: ${item.message ?? ""}`)
+      .join("; ")
+      .trim() || (error instanceof Error ? error.message : String(error));
+  const preview = sql.replace(/\s+/g, " ").slice(0, 240);
+  return new Error(`ODBC SQL failed (${detail}) | ${preview}`);
 }

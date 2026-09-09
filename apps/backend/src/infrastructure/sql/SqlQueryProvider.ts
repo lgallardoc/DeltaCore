@@ -4,6 +4,12 @@ import type { ITextFileReader } from "../../domain/ports/ITextFileReader.js";
 
 const PLACEHOLDER = /\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g;
 
+export function db2DialectFolder(): "db2" | "db2-ibmi" {
+  return (process.env.DB2_CATALOG ?? "luw").toLowerCase() === "ibmi"
+    ? "db2-ibmi"
+    : "db2";
+}
+
 export class SqlQueryProvider implements ISqlQueryProvider {
   constructor(
     private readonly dialectsRoot: string,
@@ -15,9 +21,34 @@ export class SqlQueryProvider implements ISqlQueryProvider {
     feature: string,
     params: Record<string, string>,
   ): string {
-    const filePath = path.join(this.dialectsRoot, engine, `${feature}.sql`);
+    const filePath = this.resolveFeaturePath(engine, feature);
     const template = this.files.readTextSync(filePath);
     return interpolate(template, params, filePath);
+  }
+
+  private resolveFeaturePath(engine: EngineType, feature: string): string {
+    if (engine === "db2") {
+      const preferred = path.join(
+        this.dialectsRoot,
+        db2DialectFolder(),
+        `${feature}.sql`,
+      );
+      const fallback = path.join(this.dialectsRoot, "db2", `${feature}.sql`);
+      if (this.canRead(preferred)) {
+        return preferred;
+      }
+      return fallback;
+    }
+    return path.join(this.dialectsRoot, engine, `${feature}.sql`);
+  }
+
+  private canRead(absolutePath: string): boolean {
+    try {
+      this.files.readTextSync(absolutePath);
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 

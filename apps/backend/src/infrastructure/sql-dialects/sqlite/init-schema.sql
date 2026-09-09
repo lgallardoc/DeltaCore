@@ -63,3 +63,26 @@ CREATE TABLE IF NOT EXISTS biz_comparison_jobs (
   ),
   run_date TEXT
 );
+
+CREATE TABLE IF NOT EXISTS biz_data_dictionaries (
+  id TEXT PRIMARY KEY,
+  schema_name TEXT NOT NULL,
+  table_name TEXT NOT NULL,
+  source_dsn TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (schema_name, table_name)
+);
+
+CREATE TABLE IF NOT EXISTS biz_data_dictionary_columns (
+  dictionary_id TEXT NOT NULL REFERENCES biz_data_dictionaries (id) ON DELETE CASCADE,
+  column_no TEXT NOT NULL DEFAULT '',
+  column_name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  data_type TEXT NOT NULL DEFAULT '',
+  length TEXT NOT NULL DEFAULT '',
+  scale TEXT NOT NULL DEFAULT '',
+  nullable TEXT NOT NULL DEFAULT '',
+  is_key INTEGER NOT NULL DEFAULT 0,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (dictionary_id, column_name)
+);

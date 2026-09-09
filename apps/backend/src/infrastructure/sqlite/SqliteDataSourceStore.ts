@@ -41,4 +41,34 @@ export class SqliteDataSourceStore {
       searchPath: parseSearchPath(row.search_path),
     };
   }
+
+  list(): Array<{
+    dsn: string;
+    name: string;
+    engine: EngineType;
+    searchPath: string[];
+  }> {
+    const rows = this.db
+      .prepare(
+        `SELECT name, engine, odbc_dsn, search_path
+         FROM biz_data_sources
+         WHERE is_active = 1
+         ORDER BY name`,
+      )
+      .all() as Array<{
+      name: string;
+      engine: string;
+      odbc_dsn: string;
+      search_path: string;
+    }>;
+    return rows.map((row) => ({
+      name: row.name,
+      dsn: row.odbc_dsn,
+      engine:
+        row.engine === "oracle" || row.engine === "sqlserver" || row.engine === "db2"
+          ? row.engine
+          : DEFAULT_ENGINE,
+      searchPath: parseSearchPath(row.search_path),
+    }));
+  }
 }

@@ -8,4 +8,8 @@ export type {
   JobResult,
   JobStatus,
   RBACPermission,
+  RowChange,
+  RowCompareOptions,
+  RowDelta,
+  RowValueMap,
 } from "./contracts.js";

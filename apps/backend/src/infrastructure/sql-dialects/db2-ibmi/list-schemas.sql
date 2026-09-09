@@ -1,0 +1,33 @@
+/*************************************************************************************************
+ * IBM i 7.4+ / Db2 for i (QSYS2). Used when DB2_CATALOG=ibmi.
+ * Lab Docker Db2 LUW uses sql-dialects/db2 (SYSCAT), not this file.
+ *************************************************************************************************/
+
+WITH TAMANO_ESQUEMAS AS (
+    SELECT
+        T.TABLE_SCHEMA,
+        COUNT(*) AS TOTAL_TABLAS,
+        SUM(T.NUMBER_ROWS) AS TOTAL_FILAS,
+        SUM(BIGINT(COALESCE(T.DATA_SIZE, 0))) AS TOTAL_BYTES
+    FROM QSYS2.SYSTABLESTAT T
+    WHERE T.TABLE_SCHEMA NOT LIKE 'Q%'
+      AND T.TABLE_SCHEMA NOT LIKE 'SYS%'
+      AND T.TABLE_SCHEMA NOT IN ('SYSIBM', 'SYSIBMADM', 'SYSFUN', 'SYSPROC')
+      AND T.TABLE_SCHEMA IN ({{schemaList}})
+    GROUP BY T.TABLE_SCHEMA
+)
+SELECT
+    S.SCHEMA_NAME AS schema_name,
+    S.SCHEMA_NAME AS ESQUEMA,
+    S.SCHEMA_OWNER AS PROPIETARIO,
+    'USUARIO' AS TIPO_ESQUEMA,
+    COALESCE(S.SCHEMA_TEXT, 'Sin Descripción') AS DESCRIPCION,
+    COALESCE(E.TOTAL_TABLAS, 0) AS CANTIDAD_TABLAS,
+    COALESCE(E.TOTAL_FILAS, 0) AS TOTAL_FILAS,
+    DECIMAL(ROUND(FLOAT(COALESCE(E.TOTAL_BYTES, 0)) / 1024 / 1024, 2), 15, 2) AS TAMANO_MB,
+    DECIMAL(ROUND(FLOAT(COALESCE(E.TOTAL_BYTES, 0)) / 1024 / 1024 / 1024, 2), 15, 2) AS TAMANO_GB
+FROM QSYS2.SYSSCHEMAS S
+INNER JOIN TAMANO_ESQUEMAS E
+    ON S.SCHEMA_NAME = E.TABLE_SCHEMA
+ORDER BY COALESCE(E.TOTAL_BYTES, 0) DESC
+WITH UR;

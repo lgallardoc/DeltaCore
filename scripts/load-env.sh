@@ -27,4 +27,5 @@ set +a
 : "${DB2_USER:=db2inst1}"
 : "${DB2_PASSWORD:=db2admin}"
 : "${DB2_ODBC_DSN:=AZ7DB}"
+: "${DB2_CATALOG:=luw}"
 : "${KEYCLOAK_ISSUER:=${KEYCLOAK_URL}/realms/${KEYCLOAK_REALM}}"
