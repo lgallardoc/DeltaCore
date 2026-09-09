@@ -1,0 +1,20 @@
+{
+  "name": "db2-az7-generator",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Generador DDL y DML de pruebas para DB2 AZ7 desde Excel",
+  "main": "dist/generate-db.js",
+  "scripts": {
+    "generate": "ts-node generate-db.ts",
+    "build:docker": "npm run generate && docker build --platform linux/amd64 -t db2-az7:latest .",
+    "up": "docker rm -f db2-az7 2>/dev/null || true; docker run -d --name db2-az7 --hostname db2server --platform linux/amd64 --privileged=true -p ${DB2_HOST_PORT:-50000}:${DB2_CONTAINER_PORT:-50000} -e LICENSE=accept -e DBNAME=${DB2_NAME:-AZ7DB} -e DB2INSTANCE=db2inst1 -e DB2INST1_PASSWORD=${DB2_PASSWORD:-db2admin} -e TO_CREATE_SAMPLEDB=false -e PERSISTENT_HOME=false db2-az7:latest"
+  },
+  "dependencies": {
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  }
+}

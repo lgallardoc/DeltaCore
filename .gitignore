@@ -1,0 +1,11 @@
+node_modules
+dist
+build
+*.db
+*.db-journal
+.env
+.DS_Store
+apps/frontend/dist
+apps/backend/data/
+infrastructure/odbc/odbc.ini
+infrastructure/odbc/odbcinst.ini

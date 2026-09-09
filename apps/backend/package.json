@@ -1,0 +1,27 @@
+{
+  "name": "@deltacore/backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bash -c 'test -f ../../.env || cp ../../.env.example ../../.env; set -a; source ../../.env; set +a; source ../../infrastructure/odbc/env.sh; exec tsx watch --env-file=../../.env src/adapters/http/server.ts'",
+    "build": "tsc -p tsconfig.json --noEmit",
+    "init:db": "tsx src/infrastructure/sqlite/init-cli.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@deltacore/shared": "*",
+    "cors": "^2.8.5",
+    "express": "^5.2.1",
+    "jose": "^6.1.0",
+    "odbc": "^2.5.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.5.2",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

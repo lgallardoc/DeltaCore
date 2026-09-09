@@ -1,0 +1,4 @@
+SELECT TABSCHEMA AS schema_name
+FROM SYSCAT.TABLES
+WHERE TABNAME = '{{tableName}}'
+  AND TABSCHEMA IN ({{schemaList}});

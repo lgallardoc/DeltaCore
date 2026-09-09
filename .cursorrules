@@ -1,0 +1,25 @@
+# Context
+Project: DeltaCore (Enterprise DB Metadata Reconciliator).
+Env: Node.js/TypeScript on IBM i v7.5 Power 9 (PASE environment).
+
+# Core Architecture (Hexagonal / Clean)
+1. Monorepo (npm workspaces) mapping: /apps/frontend, /apps/backend, /packages/shared.
+2. Backend: Express, Node.js, unixODBC (dynamic DSNs), SQLite (local config/audit).
+3. Frontend: React, Vite, Tailwind CSS, DaisyUI, TanStack Query, React Router.
+4. Auth: Keycloak (OIDC) -> JWT. Backend validates JWT.
+5. RBAC: Local SQLite database controls read/write/view per role.
+
+# Design Rules
+- DECOUPLING: Core logic MUST be framework-agnostic. API and CLI act only as Adapters.
+- NAMING: React buttons MUST use ID `btn[Action][Entity]`. Handlers MUST use `handle[Action][Entity]` (Actions: view, create, save, update, edit, delete, cancel, rollback, run).
+- NAVIGATION: React Router MUST use `location.state` for "Smart Back" to preserve previous view state/filters.
+- DB CONTEXTS: SQLite must strictly separate `sys_` (Auth, RBAC, Audit) and `biz_` (Connections, Jobs, Patterns).
+- SQL DIALECTS: Strategy Pattern. Load `.sql` files dynamically from `src/infrastructure/sql-dialects/<engine>/<feature>.sql`. Use {{variable}} for interpolation. Do not hardcode SQL in TS.
+- TESTING: Jest/Vitest `spec.ts` for domain logic and query providers using Mocks. No live DB connections in tests.
+
+# AZ7 catalog (IBM i / Db2 LUW lab)
+- Local Db2 mock of Autoriza7 lives in `/infrastructure/db2-az7-generator`.
+- Source of truth is Excel `Catalogo de Datos DB2-AZ7 V1.0.xlsx` (place next to `generate-db.ts`). Sheets: `1.Librerias`, `2.Tablas_Vistas_DB2_AZ7` (FISICO only), `4.Definicion de Campos_AZ7`.
+- Libraries: AZLOSWQACL, AZBASWQA, AXSWQACL. Do not use pandas in this repo; generate DDL/DML with TypeScript (`xlsx`) via `npm run generate`.
+- Map IBM i types in `generate-db.ts` (`NUMERIC`/`DECIMAL` → DECIMAL, `TIMESTMP` → TIMESTAMP, CHAR>254 → VARCHAR). Docker image `ibmcom/db2:11.5.8.0`, DB `AZ7DB`, port 50000.
+- Commands: `cd infrastructure/db2-az7-generator && npm install && npm run generate && npm run build:docker && npm run up`. Host/container ports come from `.env` (`DB2_HOST_PORT`, `DB2_CONTAINER_PORT`). Db2 images are linux/amd64 only; on Apple Silicon use `--platform linux/amd64`. Base image: `icr.io/db2_community/db2`.

@@ -1,0 +1,29 @@
+{
+  "name": "deltacore",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Enterprise DB Metadata Reconciliator",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "start": "bash scripts/start.sh",
+    "start:infra": "bash scripts/start.sh --infra-only",
+    "dev": "concurrently -n backend,frontend -c blue,green \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "npm run dev -w @deltacore/backend",
+    "dev:frontend": "npm run dev -w @deltacore/frontend",
+    "status": "bash scripts/status.sh",
+    "stop": "bash scripts/stop.sh",
+    "stop:sso": "bash scripts/stop.sh --keep-az7",
+    "test": "npm run test --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "init:db": "npm run init:db -w @deltacore/backend"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
