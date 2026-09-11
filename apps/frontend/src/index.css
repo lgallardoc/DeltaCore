@@ -158,6 +158,20 @@ span {
   border-color: var(--line);
 }
 
+.table tbody tr {
+  transition: background-color 120ms ease;
+}
+
+.table tbody tr:hover > :where(th, td),
+.table tbody tr:focus-within > :where(th, td) {
+  background: var(--soft);
+}
+
+.table tbody tr[aria-selected="true"] > :where(th, td),
+.table tbody tr.bg-\[color\:var\(--brand-soft\)\] > :where(th, td) {
+  background: var(--brand-soft);
+}
+
 .badge {
   border: 0;
   font-weight: 700;
@@ -232,4 +246,70 @@ span {
 .fin-tabs .tab-active {
   background: var(--brand) !important;
   color: #ffffff !important;
+}
+
+.fin-status-banner {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  left: 1rem;
+  z-index: 50;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0.75rem;
+  max-width: 72rem;
+  margin: auto;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: #ffffff;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18);
+}
+
+.fin-status-message {
+  max-height: 9rem;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.fin-status-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid currentColor;
+  border-radius: 0.375rem;
+  background: transparent;
+  cursor: pointer;
+}
+
+.fin-status-error {
+  border-color: #fca5a5;
+  color: #b91c1c;
+  background: #fff7f7;
+}
+
+.fin-status-success {
+  border-color: #86efac;
+  color: #166534;
+  background: #f0fdf4;
+}
+
+.fin-status-warning {
+  border-color: #fcd34d;
+  color: #92400e;
+  background: #fffbeb;
+}
+
+.fin-status-info {
+  border-color: var(--brand-border);
+  color: var(--ink);
 }

@@ -48,6 +48,20 @@ export interface RowCompareOptions {
   sampleSize?: number;
 }
 
+export type SchemaColumnStatus = "Igual" | "Solo origen" | "Solo destino" | "Tipo distinto";
+
+export interface SchemaColumnComparison {
+  table: string;
+  column: string;
+  sourceType: string | null;
+  targetType: string | null;
+  sourceLength: string | null;
+  targetLength: string | null;
+  sourceScale: string | null;
+  targetScale: string | null;
+  status: SchemaColumnStatus;
+}
+
 export interface JobResult {
   jobId: string;
   status: JobStatus;
@@ -58,6 +72,7 @@ export interface JobResult {
   sourceSchema?: string;
   targetSchema?: string;
   schemaDelta?: Record<string, any>;
+  schemaComparison?: SchemaColumnComparison[];
   rowDelta?: RowDelta;
   error?: string;
 }

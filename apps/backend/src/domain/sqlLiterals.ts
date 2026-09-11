@@ -14,7 +14,7 @@ export function quoteSchemaList(schemas: string[]): string {
 
 export function sqlIdent(name: string): string {
   const ident = name.trim().toUpperCase();
-  if (!/^[A-Za-z0-9_]+$/.test(ident)) {
+  if (!/^[A-Za-z0-9_@$#]+$/.test(ident)) {
     throw new Error(`Invalid identifier: ${name}`);
   }
   return ident;

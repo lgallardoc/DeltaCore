@@ -12,4 +12,6 @@ export type {
   RowCompareOptions,
   RowDelta,
   RowValueMap,
+  SchemaColumnComparison,
+  SchemaColumnStatus,
 } from "./contracts.js";

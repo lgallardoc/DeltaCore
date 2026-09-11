@@ -1,5 +1,12 @@
-import type { ReactNode } from "react";
-import type { JobResult, RowValueMap } from "@deltacore/shared";
+import { Eye, X } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import type {
+  JobResult,
+  RowValueMap,
+  SchemaColumnComparison,
+  SchemaColumnStatus,
+} from "@deltacore/shared";
+import type { SchemaTableDetail } from "./CompareView";
 
 export type ColumnInfo = {
   columnName: string;
@@ -10,36 +17,28 @@ export type ColumnInfo = {
 type Props = {
   result: JobResult;
   columns?: ColumnInfo[];
+  tableDescriptions?: Record<string, string>;
+  onLoadSchemaDetail?: (table: string) => Promise<SchemaTableDetail>;
 };
 
-export function CompareResult({ result, columns = [] }: Props) {
+export function CompareResult({
+  result,
+  columns = [],
+  tableDescriptions = {},
+  onLoadSchemaDetail,
+}: Props) {
   const labels = columnMap(columns);
-  const tone =
-    result.status === "SUCCESS"
-      ? "badge-success"
-      : result.status === "DIFFERENCE"
-        ? "badge-warning"
-        : "badge-error";
   const schemaEntries = Object.entries(result.schemaDelta ?? {});
+  const schemaComparison = result.schemaComparison ?? [];
+  const [selectedSchemaTable, setSelectedSchemaTable] = useState<string | null>(null);
+  const [schemaDetail, setSchemaDetail] = useState<SchemaTableDetail | null>(null);
+  const [schemaDetailError, setSchemaDetailError] = useState("");
+  const [schemaDetailBusy, setSchemaDetailBusy] = useState(false);
   const samples = result.rowDelta?.samples;
+  const schemaTables = summarizeSchemaComparison(schemaComparison, tableDescriptions);
 
   return (
     <section className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className={`badge ${tone}`}>{result.status}</span>
-        {result.table ? (
-          <span className="font-code text-xs">
-            {result.sourceSchema}.{result.table}
-            {result.targetSchema ? ` → ${result.targetSchema}.${result.table}` : ""}
-          </span>
-        ) : null}
-      </div>
-      {result.error ? (
-        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-          {result.error}
-        </p>
-      ) : null}
-
       {result.volumeDelta != null ? (
         <div className="stats stats-vertical w-full border shadow lg:stats-horizontal">
           <div className="stat">
@@ -82,7 +81,41 @@ export function CompareResult({ result, columns = [] }: Props) {
         </div>
       ) : null}
 
-      {schemaEntries.length > 0 ? (
+      {schemaTables.length > 0 ? (
+        <ResultTable title="Comparación de esquema">
+          <thead>
+            <tr>
+              <th>Tabla</th>
+              <th>Descripción</th>
+              <th>Integridad</th>
+              <th>Estado</th>
+              <th>Ver</th>
+            </tr>
+          </thead>
+          <tbody>
+            {schemaTables.map((table) => (
+              <tr key={table.name}>
+                <td className="font-code">{table.name}</td>
+                <td>{table.description || "—"}</td>
+                <td>{table.integrity}%</td>
+                <td className={table.integrity === 100 ? "text-emerald-700" : "text-amber-700"}>
+                  {table.integrity === 100 ? "Íntegro" : "Con diferencias"}
+                </td>
+                <td>
+                  <button
+                    type="button"
+                    className="btn btn-xs"
+                    onClick={() => void openSchemaDetail(table.name)}
+                    title={`Ver detalle de ${table.name}`}
+                  >
+                    <Eye size={13} /> Ver
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </ResultTable>
+      ) : schemaEntries.length > 0 ? (
         <ResultTable title="Diferencias de esquema">
           <thead>
             <tr>
@@ -153,7 +186,109 @@ export function CompareResult({ result, columns = [] }: Props) {
           }))}
         />
       ) : null}
+      {selectedSchemaTable ? (
+        <SchemaDetailModal
+          table={selectedSchemaTable}
+          detail={schemaDetail}
+          error={schemaDetailError}
+          busy={schemaDetailBusy}
+          onClose={() => {
+            setSelectedSchemaTable(null);
+            setSchemaDetail(null);
+          }}
+        />
+      ) : null}
     </section>
+  );
+
+  async function openSchemaDetail(table: string) {
+    setSelectedSchemaTable(table);
+    setSchemaDetail(null);
+    setSchemaDetailError("");
+    if (!onLoadSchemaDetail) {
+      setSchemaDetailError("No se pudo cargar el detalle de esquema.");
+      return;
+    }
+    setSchemaDetailBusy(true);
+    try {
+      setSchemaDetail(await onLoadSchemaDetail(table));
+    } catch (error) {
+      setSchemaDetailError(
+        (error as { response?: { data?: { error?: string } } }).response?.data?.error ??
+          (error instanceof Error ? error.message : "No se pudo cargar el detalle de esquema."),
+      );
+    } finally {
+      setSchemaDetailBusy(false);
+    }
+  }
+}
+
+function SchemaDetailModal({
+  table,
+  detail,
+  error,
+  busy,
+  onClose,
+}: {
+  table: string;
+  detail: SchemaTableDetail | null;
+  error: string;
+  busy: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-label={`Detalle de esquema ${table}`}>
+      <div className="fin-panel flex max-h-[85vh] w-full max-w-6xl flex-col rounded-lg border p-4">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h3 className="text-base font-bold">Detalle de esquema: {table}</h3>
+          <button type="button" className="btn btn-sm" onClick={onClose} title="Cerrar detalle">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="min-h-0 overflow-auto rounded border">
+          <table className="table table-xs table-pin-rows">
+            <thead>
+              <tr>
+                <th>Descripción</th>
+                <th>Campo</th>
+                <th>Tipo origen</th>
+                <th>Largo origen</th>
+                <th>Decimales origen</th>
+                <th>Tipo destino</th>
+                <th>Largo destino</th>
+                <th>Decimales destino</th>
+                <th>Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {detail ? compareCatalogColumns(detail).map((column) => (
+                <tr key={column.column}>
+                  <td>{column.description || "—"}</td>
+                  <td className="font-code">{column.column}</td>
+                  <td className="font-code">{column.sourceType ?? "—"}</td>
+                  <td className="font-code">{column.sourceLength ?? "—"}</td>
+                  <td className="font-code">{column.sourceScale ?? "—"}</td>
+                  <td className="font-code">{column.targetType ?? "—"}</td>
+                  <td className="font-code">{column.targetLength ?? "—"}</td>
+                  <td className="font-code">{column.targetScale ?? "—"}</td>
+                  <td className={schemaStatusClass(column.status)}>{column.status}</td>
+                </tr>
+              )) : null}
+              {busy ? (
+                <tr>
+                  <td colSpan={9} className="py-8 text-center">Cargando detalle desde origen y destino…</td>
+                </tr>
+              ) : null}
+              {error ? (
+                <tr>
+                  <td colSpan={9} className="py-8 text-center text-red-700">{error}</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -293,6 +428,74 @@ function pick(row: RowValueMap, columns: string[]): RowValueMap {
 
 function isKeyColumn(column: string, keyColumns: string[]): boolean {
   return keyColumns.some((key) => key.toUpperCase() === column.toUpperCase());
+}
+
+function schemaStatusClass(status: SchemaColumnStatus): string {
+  return status === "Igual"
+    ? "text-emerald-700"
+    : status === "Tipo distinto"
+      ? "text-amber-700"
+      : "text-red-700";
+}
+
+function summarizeSchemaComparison(
+  columns: SchemaColumnComparison[],
+  tableDescriptions: Record<string, string>,
+): Array<{
+  name: string;
+  description: string;
+  integrity: number;
+}> {
+  const tables = new Map<string, SchemaColumnComparison[]>();
+  for (const column of columns) {
+    const current = tables.get(column.table) ?? [];
+    current.push(column);
+    tables.set(column.table, current);
+  }
+  return [...tables.entries()]
+    .map(([name, tableColumns]) => ({
+      name,
+      description: tableDescriptions[name.toUpperCase()] ?? "",
+      integrity: Math.round(
+        (tableColumns.filter((column) => column.status === "Igual").length /
+          tableColumns.length) *
+          100,
+      ),
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function compareCatalogColumns(
+  detail: SchemaTableDetail,
+): Array<SchemaColumnComparison & { description: string }> {
+  const source = new Map(detail.source.columns.map((column) => [column.columnName.toUpperCase(), column]));
+  const target = new Map(detail.target.columns.map((column) => [column.columnName.toUpperCase(), column]));
+  return [...new Set([...source.keys(), ...target.keys()])]
+    .sort()
+    .map((name) => {
+      const sourceColumn = source.get(name);
+      const targetColumn = target.get(name);
+      const sourceType = sourceColumn?.dataType ?? null;
+      const targetType = targetColumn?.dataType ?? null;
+      return {
+        table: "",
+        column: sourceColumn?.columnName ?? targetColumn?.columnName ?? name,
+        sourceType,
+        targetType,
+        sourceLength: sourceColumn?.length ?? null,
+        targetLength: targetColumn?.length ?? null,
+        sourceScale: sourceColumn?.scale ?? null,
+        targetScale: targetColumn?.scale ?? null,
+        description: sourceColumn?.description.trim() || targetColumn?.description.trim() || "",
+        status: sourceType === null
+          ? "Solo destino"
+          : targetType === null
+            ? "Solo origen"
+            : sourceType === targetType && sourceColumn?.length === targetColumn?.length && sourceColumn?.scale === targetColumn?.scale
+              ? "Igual"
+              : "Tipo distinto",
+      } satisfies SchemaColumnComparison & { description: string };
+    });
 }
 
 function columnMap(columns: ColumnInfo[]): Map<string, string> {

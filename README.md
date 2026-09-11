@@ -121,13 +121,23 @@ Keycloak lab: `http://localhost:5173` (user `developer` / `dev123`).
 | Route | Purpose |
 | --- | --- |
 | `/compare` | Schema, volume, and row compare. Choose DSNs, table, schemas, optional key, limit. Dictionary **save** is not on this page. |
-| `/dictionary` | Load catalog columns, mark PK/key, save descriptions and keys in SQLite |
+| `/dictionary` | Manage saved dictionaries by DSN: load local/catalog entries, edit fields/keys, and remove one table or all dictionaries for a DSN. |
 | `/catalog` | List schemas and tables for a DSN |
 | `/jobs` | Comparison job list / detail |
 
 Row compare fills **Clave** from SQLite (`GET /api/dictionary`) when keys were saved in Diccionario. If none, the engine uses catalog PK, then all columns. Result headers use dictionary descriptions when present.
 
-HTTP (JWT): `POST /api/jobs/:id/{schema,volume,row}-compare`, `GET /api/catalog/*`, `GET /api/data-sources`, `GET`/`PUT /api/dictionary`.
+### Schema comparison UI
+
+Schema comparison analyzes each requested table sequentially against the live origin and target catalogs. The progress bar reports the current table and the number completed.
+
+The summary displays one row per table: table name, description, integrity percentage, final status, and **Ver**. The description comes from the saved dictionary for the origin DSN; if it is absent, the application queries the live origin catalog. The summary does not load local column dictionaries.
+
+**Ver** opens a modal that fetches `GET /api/catalog/describe` from both DSNs on demand. It shows field descriptions (origin first, target as fallback), data types, lengths, decimal scales, and the field comparison status.
+
+All temporary success, warning, and error notices use the global bottom banner. It has a close button and closes automatically after three seconds. ODBC and SQL errors are displayed in full, including available driver diagnostics.
+
+HTTP (JWT): `POST /api/jobs/:id/{schema,volume,row}-compare`, `GET /api/catalog/*`, `GET /api/data-sources`, `GET`/`PUT`/`DELETE /api/dictionary`.
 
 ### CLI (PASE / local operator)
 

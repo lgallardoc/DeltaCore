@@ -20,7 +20,7 @@ export class UnixOdbcConnection implements IOdbcConnection {
 
   async query<T>(sql: string): Promise<T[]> {
     try {
-      const rows = await this.conn.query<T>(sql);
+      const rows = await this.conn.query<T>(stripSqlTerminator(sql));
       return [...rows].map((row) => lowercaseKeys(row));
     } catch (error) {
       throw wrapOdbcError(error, sql);
@@ -32,6 +32,10 @@ export class UnixOdbcConnection implements IOdbcConnection {
   }
 }
 
+export function stripSqlTerminator(sql: string): string {
+  return sql.replace(/;\s*$/, "");
+}
+
 export async function openUnixOdbcConnection(
   dsn: string,
   engine: EngineType,
@@ -40,22 +44,22 @@ export async function openUnixOdbcConnection(
   applyOdbcRuntimeEnv();
   const driver = ibmCliDriverPath();
   const attempts = [
-    `DSN=${dsn};`,
-    connectionStringForDsn(dsn),
-    `DRIVER=${driver};${db2TcpipConnectionString()}`,
+    { label: `DSN ${dsn}`, connectionString: `DSN=${dsn};` },
+    { label: `Configuración del DSN ${dsn}`, connectionString: connectionStringForDsn(dsn) },
+    { label: "IBM CLI TCP/IP configurado", connectionString: `DRIVER=${driver};${db2TcpipConnectionString()}` },
   ];
-  let lastError: unknown;
-  for (const connectionString of attempts) {
+  const failures: string[] = [];
+  for (const attempt of attempts) {
     try {
-      const conn = await odbc.connect(connectionString);
+      const conn = await odbc.connect(attempt.connectionString);
       return new UnixOdbcConnection(conn, engine, searchPath);
     } catch (error) {
-      lastError = error;
+      failures.push(`${attempt.label}: ${formatOdbcError(error)}`);
     }
   }
-  throw lastError instanceof Error
-    ? lastError
-    : new Error(`ODBC connect failed for DSN ${dsn}`);
+  throw new Error(
+    `No se pudo conectar por ODBC al DSN ${dsn}. Intentos: ${failures.join(" | ")}`,
+  );
 }
 
 function lowercaseKeys<T>(row: T): T {
@@ -70,13 +74,18 @@ function lowercaseKeys<T>(row: T): T {
 }
 
 function wrapOdbcError(error: unknown, sql: string): Error {
+  const detail = formatOdbcError(error);
+  const preview = sql.replace(/\s+/g, " ").slice(0, 240);
+  return new Error(`ODBC SQL failed (${detail}) | ${preview}`);
+}
+
+export function formatOdbcError(error: unknown): string {
   const odbcErrors = (error as { odbcErrors?: Array<{ message?: string; state?: string }> })
     .odbcErrors;
-  const detail =
+  return (
     odbcErrors
       ?.map((item) => `${item.state ?? "?"}: ${item.message ?? ""}`)
       .join("; ")
-      .trim() || (error instanceof Error ? error.message : String(error));
-  const preview = sql.replace(/\s+/g, " ").slice(0, 240);
-  return new Error(`ODBC SQL failed (${detail}) | ${preview}`);
+      .trim() || (error instanceof Error ? error.message : String(error))
+  );
 }

@@ -35,8 +35,16 @@ describe("ComparisonEngine", () => {
       schemaResolver,
       searchPathFor,
     );
-    const source = mockDb([{ column_name: "ID", data_type: "INTEGER" }]);
-    const target = mockDb([{ column_name: "ID", data_type: "BIGINT" }]);
+    const source = mockDb([
+      { column_name: "ID", data_type: "INTEGER", length: "4", scale: "0" },
+      { column_name: "NAME", data_type: "VARCHAR", length: "30", scale: null },
+      { column_name: "SOURCE_ONLY", data_type: "CHAR", length: "5", scale: null },
+    ]);
+    const target = mockDb([
+      { column_name: "ID", data_type: "BIGINT", length: "8", scale: "0" },
+      { column_name: "NAME", data_type: "VARCHAR", length: "30", scale: null },
+      { column_name: "TARGET_ONLY", data_type: "DECIMAL", length: "15", scale: "2" },
+    ]);
 
     const result = await engine.executeSchemaCompare(source, target, ["T1"]);
 
@@ -45,6 +53,52 @@ describe("ComparisonEngine", () => {
       source: "INTEGER",
       target: "BIGINT",
     });
+    expect(result.schemaComparison).toEqual([
+      {
+        table: "T1",
+        column: "ID",
+        sourceType: "INTEGER",
+        targetType: "BIGINT",
+        sourceLength: "4",
+        targetLength: "8",
+        sourceScale: "0",
+        targetScale: "0",
+        status: "Tipo distinto",
+      },
+      {
+        table: "T1",
+        column: "NAME",
+        sourceType: "VARCHAR",
+        targetType: "VARCHAR",
+        sourceLength: "30",
+        targetLength: "30",
+        sourceScale: null,
+        targetScale: null,
+        status: "Igual",
+      },
+      {
+        table: "T1",
+        column: "SOURCE_ONLY",
+        sourceType: "CHAR",
+        targetType: null,
+        sourceLength: "5",
+        targetLength: null,
+        sourceScale: null,
+        targetScale: null,
+        status: "Solo origen",
+      },
+      {
+        table: "T1",
+        column: "TARGET_ONLY",
+        sourceType: null,
+        targetType: "DECIMAL",
+        sourceLength: null,
+        targetLength: "15",
+        sourceScale: null,
+        targetScale: "2",
+        status: "Solo destino",
+      },
+    ]);
     expect(schemaResolver.resolveTableSchema).toHaveBeenCalled();
     expect(audit.logAction).toHaveBeenCalled();
   });
@@ -92,6 +146,37 @@ describe("ComparisonEngine", () => {
     expect(result.sourceSchema).toBe("AZBASWQA");
     expect(result.targetSchema).toBe("AXSW1PDCL");
     expect(schemaResolver.resolveTableSchema).not.toHaveBeenCalled();
+  });
+
+  it("resolves comma-separated source and target schemas in order", async () => {
+    const engine = new ComparisonEngine(
+      queries,
+      audit,
+      () => "job-3b",
+      schemaResolver,
+      searchPathFor,
+    );
+    const source = mockDb([{ pattern_id: "ACCTX", row_count: 10 }]);
+    const target = mockDb([{ pattern_id: "ACCTX", row_count: 10 }]);
+    vi.mocked(schemaResolver.resolveTableSchema).mockClear();
+
+    await engine.executeVolumeCompare(source, target, "ACCTX", {
+      sourceSchema: "FIRST,SECOND",
+      targetSchema: "TARGET_FIRST,TARGET_SECOND",
+    });
+
+    expect(schemaResolver.resolveTableSchema).toHaveBeenNthCalledWith(
+      1,
+      source,
+      "ACCTX",
+      ["FIRST", "SECOND"],
+    );
+    expect(schemaResolver.resolveTableSchema).toHaveBeenNthCalledWith(
+      2,
+      target,
+      "ACCTX",
+      ["TARGET_FIRST", "TARGET_SECOND"],
+    );
   });
 
   it("compares row values using an explicit key", async () => {

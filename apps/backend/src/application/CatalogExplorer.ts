@@ -18,6 +18,8 @@ export type CatalogTable = {
   schema: string;
   table: string;
   tableType: string;
+  tableDescription: string;
+  rowCount: number;
 };
 
 export type TableColumn = {
@@ -28,6 +30,20 @@ export type TableColumn = {
   scale: string;
   nullable: string;
   description: string;
+};
+
+export type CatalogDescription = {
+  dsn: string;
+  engine: EngineType;
+  schema: string;
+  table: string;
+  columns: TableColumn[];
+  tableDescription: string;
+  rowCount: number;
+};
+
+type CatalogOptions = {
+  searchPath?: string[];
 };
 
 export class CatalogExplorer {
@@ -42,21 +58,27 @@ export class CatalogExplorer {
     return { dsn, engine: meta.engine, schemas: meta.searchPath };
   }
 
-  async listSchemas(dsn: string): Promise<{
+  async listSchemas(dsn: string, searchPath?: string[]): Promise<{
     dsn: string;
     engine: EngineType;
     schemas: AssignedSchema[];
   }> {
     const meta = this.lookup(dsn);
+    const effectiveSearchPath = searchPath ?? meta.searchPath;
+    const effectiveMeta = { ...meta, searchPath: effectiveSearchPath };
     const found = new Set(
-      (await this.queryCatalog<Record<string, unknown>>(dsn, meta, "list-schemas")).map(
-        (row) => catalogSchemaName(row),
-      ),
+      (
+        await this.queryCatalog<Record<string, unknown>>(
+          dsn,
+          effectiveMeta,
+          "list-schemas",
+        )
+      ).map((row) => catalogSchemaName(row)),
     );
     return {
       dsn,
       engine: meta.engine,
-      schemas: meta.searchPath.map((schema, priority) => ({
+      schemas: effectiveSearchPath.map((schema, priority) => ({
         schema,
         priority,
         presentInCatalog: [...found].some((name) => name.toUpperCase() === schema.toUpperCase()),
@@ -67,7 +89,7 @@ export class CatalogExplorer {
   async listTables(
     dsn: string,
     tableNames: string[] = [],
-    options: { allSchemas?: boolean } = {},
+    options: { allSchemas?: boolean; tableLike?: string } & CatalogOptions = {},
   ): Promise<{
     dsn: string;
     engine: EngineType;
@@ -76,26 +98,34 @@ export class CatalogExplorer {
     tables: CatalogTable[];
   }> {
     const meta = this.lookup(dsn);
+    const effectiveSearchPath = options.searchPath ?? meta.searchPath;
+    const effectiveMeta = { ...meta, searchPath: effectiveSearchPath };
     const allSchemas = Boolean(options.allSchemas);
     const rows = await this.queryCatalog<Record<string, unknown>>(
       dsn,
-      meta,
+      effectiveMeta,
       "list-tables",
       {
-        tableName: tableNames[0]?.toUpperCase() ?? "",
+        tableName:
+          tableNames.length > 1 ? "__TABLE_LIST__" : tableNames[0]?.toUpperCase() ?? "",
         tableList: sqlTableList(tableNames),
+        tablePattern: escapeSqlLikeLiteral(
+          tableNames.length > 1 ? "" : options.tableLike ?? "",
+        ),
         limitToPath: allSchemas ? "0" : "1",
       },
     );
     return {
       dsn,
       engine: meta.engine,
-      searchPath: meta.searchPath,
+      searchPath: effectiveSearchPath,
       allSchemas,
       tables: rows.map((row) => ({
         schema: catalogSchemaName(row),
         table: catalogTableName(row),
         tableType: String(row.table_type ?? row.type ?? "T").trim(),
+        tableDescription: String(row.table_description ?? row.description ?? "").trim(),
+        rowCount: Number(row.row_count ?? 0),
       })),
     };
   }
@@ -104,30 +134,34 @@ export class CatalogExplorer {
     dsn: string,
     tableName: string,
     schemaHint?: string,
-  ): Promise<{
-    dsn: string;
-    engine: EngineType;
-    schema: string;
-    table: string;
-    columns: TableColumn[];
-  }> {
+    options: CatalogOptions = {},
+  ): Promise<CatalogDescription> {
     const table = sqlIdent(tableName);
     const meta = this.lookup(dsn);
+    const effectiveSearchPath = options.searchPath ?? meta.searchPath;
+    const effectiveMeta = { ...meta, searchPath: effectiveSearchPath };
     const schema = schemaHint
       ? sqlIdent(schemaHint)
       : winningSchema(
-          (await this.listTables(dsn, [table])).tables,
-          meta.searchPath,
+          (await this.listTables(dsn, [table], { searchPath: effectiveSearchPath })).tables,
+          effectiveSearchPath,
           table,
         );
     if (!schema) {
       throw new Error(
-        `Table ${table} not found in *LIBL*: ${meta.searchPath.join(", ")}`,
+        `Table ${table} not found in *LIBL*: ${effectiveSearchPath.join(", ")}`,
       );
     }
+    const metadataRows = await this.queryCatalog<Record<string, unknown>>(
+      dsn,
+      { ...effectiveMeta, searchPath: [schema] },
+      "find_table_schemas",
+      { tableName: table },
+    );
+    const metadata = metadataRows[0];
     const rows = await this.queryCatalog<Record<string, unknown>>(
       dsn,
-      meta,
+      effectiveMeta,
       "describe-table",
       { schema, tableName: table },
     );
@@ -136,6 +170,10 @@ export class CatalogExplorer {
       engine: meta.engine,
       schema,
       table,
+      tableDescription: String(
+        metadata?.table_description ?? metadata?.description ?? "",
+      ).trim(),
+      rowCount: Number(metadata?.row_count ?? 0),
       columns: rows.map((row) => ({
         columnNo: String(row.column_no ?? row.colno ?? ""),
         columnName: String(row.column_name ?? row.colname ?? ""),
@@ -154,6 +192,29 @@ export class CatalogExplorer {
           .trim(),
       })),
     };
+  }
+
+  async describeTables(
+    dsn: string,
+    searchPath?: string[],
+  ): Promise<CatalogDescription[]> {
+    const tables = await this.listTables(dsn, [], { searchPath });
+    const selectedTables = new Map<string, CatalogTable>();
+    for (const table of tables.tables) {
+      const key = table.table.toUpperCase();
+      if (selectedTables.has(key)) {
+        continue;
+      }
+      const schema = winningSchema(tables.tables, tables.searchPath, table.table);
+      if (schema) {
+        selectedTables.set(key, { ...table, schema });
+      }
+    }
+    return Promise.all(
+      [...selectedTables.values()].map((table) =>
+        this.describeTable(dsn, table.table, table.schema, { searchPath }),
+      ),
+    );
   }
 
   private async queryCatalog<T>(
@@ -180,7 +241,11 @@ function sqlTableList(tables: string[]): string {
   if (tables.length === 0) {
     return "''";
   }
-  return quoteSchemaList(tables.map((name) => name.toUpperCase()));
+  return tables.map((name) => `'${sqlIdent(name)}'`).join(",");
+}
+
+function escapeSqlLikeLiteral(value: string): string {
+  return value.replaceAll("'", "''");
 }
 
 function winningSchema(

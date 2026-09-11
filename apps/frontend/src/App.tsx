@@ -3,8 +3,10 @@ import { AuthProvider } from "./auth/AuthProvider";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { apiClient } from "./auth/api.client";
 import { Layout } from "./components/layout/Layout";
+import { StatusProvider } from "./components/StatusBanner";
 import { CatalogView } from "./features/catalog/CatalogView";
 import { DictionaryView } from "./features/dictionary/DictionaryView";
+import { DictionaryEditView } from "./features/dictionary/DictionaryEditView";
 import { CompareView } from "./features/compare/CompareView";
 import { JobDetail } from "./features/jobs/JobDetail";
 import { JobList } from "./features/jobs/JobList";
@@ -15,7 +17,8 @@ export function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
-        <Routes>
+        <StatusProvider>
+          <Routes>
           <Route
             element={
               <ProtectedRoute moduleName={JOBS_MODULE}>
@@ -26,6 +29,7 @@ export function App() {
             <Route path="/" element={<Navigate to="/compare" replace />} />
             <Route path="/compare" element={<CompareView />} />
             <Route path="/dictionary" element={<DictionaryView />} />
+            <Route path="/dictionary/edit" element={<DictionaryEditView />} />
             <Route path="/catalog" element={<CatalogView />} />
             <Route path="/jobs" element={<JobList />} />
             <Route
@@ -48,7 +52,8 @@ export function App() {
               }
             />
           </Route>
-        </Routes>
+          </Routes>
+        </StatusProvider>
       </BrowserRouter>
     </AuthProvider>
   );

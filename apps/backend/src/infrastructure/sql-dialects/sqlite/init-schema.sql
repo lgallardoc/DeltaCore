@@ -68,9 +68,11 @@ CREATE TABLE IF NOT EXISTS biz_data_dictionaries (
   id TEXT PRIMARY KEY,
   schema_name TEXT NOT NULL,
   table_name TEXT NOT NULL,
+  table_description TEXT NOT NULL DEFAULT '',
+  row_count INTEGER NOT NULL DEFAULT 0,
   source_dsn TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE (schema_name, table_name)
+  UNIQUE (table_name)
 );
 
 CREATE TABLE IF NOT EXISTS biz_data_dictionary_columns (
@@ -83,6 +85,7 @@ CREATE TABLE IF NOT EXISTS biz_data_dictionary_columns (
   scale TEXT NOT NULL DEFAULT '',
   nullable TEXT NOT NULL DEFAULT '',
   is_key INTEGER NOT NULL DEFAULT 0,
+  key_order INTEGER,
   sort_order INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (dictionary_id, column_name)
 );

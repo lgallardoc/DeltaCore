@@ -12,6 +12,7 @@ import type { SqliteDictionaryStore } from "../../infrastructure/sqlite/SqliteDi
 import type { SqliteRbacStore } from "../../infrastructure/sqlite/SqliteRbacStore.js";
 
 type DataSourceListItem = {
+  id: string;
   dsn: string;
   name: string;
   engine: string;
@@ -24,7 +25,15 @@ export function createApp(deps: {
   rbac: SqliteRbacStore;
   catalog: CatalogExplorer;
   dictionaries: SqliteDictionaryStore;
-  listDataSources: () => DataSourceListItem[];
+  listDataSources: (search?: string) => DataSourceListItem[];
+  saveDataSource: (input: {
+    id?: string;
+    name: string;
+    dsn: string;
+    engine: "db2" | "oracle" | "sqlserver";
+    searchPath: string[];
+  }) => DataSourceListItem;
+  deleteDataSource: (id: string) => boolean;
   verifyToken: (token: string) => Promise<AccessIdentity>;
   corsOrigin?: string;
 }) {
@@ -54,7 +63,50 @@ export function createApp(deps: {
 
   app.get("/api/data-sources", async (req, res) => {
     await withAuth(req, res, deps.verifyToken, async () => {
-      res.json({ sources: deps.listDataSources() });
+      res.json({ sources: deps.listDataSources(queryString(req, "q")) });
+    });
+  });
+
+  app.put("/api/data-sources", async (req, res) => {
+    await withAuth(req, res, deps.verifyToken, async () => {
+      const body = (req.body ?? {}) as {
+        name?: unknown;
+        dsn?: unknown;
+        engine?: unknown;
+        searchPath?: unknown;
+        id?: unknown;
+      };
+      const name = asTrimmed(body.name);
+      const dsn = asTrimmed(body.dsn);
+      const searchPath = parseStringList(body.searchPath);
+      if (!name || !dsn || searchPath.length === 0) {
+        res.status(400).json({
+          error: "name, dsn and searchPath are required",
+        });
+        return;
+      }
+      const engine = body.engine === "oracle" || body.engine === "sqlserver"
+        ? body.engine
+        : "db2";
+      res.json(
+        deps.saveDataSource({
+          id: asTrimmed(body.id) || undefined,
+          name,
+          dsn,
+          engine,
+          searchPath,
+        }),
+      );
+    });
+  });
+
+  app.delete("/api/data-sources/:id", async (req, res) => {
+    await withAuth(req, res, deps.verifyToken, async () => {
+      if (!deps.deleteDataSource(req.params.id)) {
+        res.status(404).json({ error: "data source not found" });
+        return;
+      }
+      res.json({ ok: true });
     });
   });
 
@@ -65,7 +117,9 @@ export function createApp(deps: {
         res.status(400).json({ error: "dsn is required" });
         return;
       }
-      res.json(await deps.catalog.listSchemas(dsn));
+      res.json(
+        await deps.catalog.listSchemas(dsn, parseSearchPathQuery(req, "searchPath")),
+      );
     });
   });
 
@@ -78,8 +132,16 @@ export function createApp(deps: {
       }
       const table = queryString(req, "table");
       const allSchemas = queryString(req, "allSchemas") === "1";
+      const tableNames = table
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
       res.json(
-        await deps.catalog.listTables(dsn, table ? [table] : [], { allSchemas }),
+        await deps.catalog.listTables(dsn, tableNames, {
+          allSchemas,
+          tableLike: tableNames.length === 1 ? tableNames[0] : "",
+          searchPath: parseSearchPathQuery(req, "searchPath"),
+        }),
       );
     });
   });
@@ -88,12 +150,22 @@ export function createApp(deps: {
     await withAuth(req, res, deps.verifyToken, async () => {
       const dsn = queryString(req, "dsn");
       const table = queryString(req, "table");
-      if (!dsn || !table) {
-        res.status(400).json({ error: "dsn and table are required" });
+      if (!dsn) {
+        res.status(400).json({ error: "dsn is required" });
+        return;
+      }
+      const searchPath = parseSearchPathQuery(req, "searchPath");
+      if (!table) {
+        res.json({
+          dsn,
+          descriptions: await deps.catalog.describeTables(dsn, searchPath),
+        });
         return;
       }
       res.json(
-        await deps.catalog.describeTable(dsn, table, queryString(req, "schema")),
+        await deps.catalog.describeTable(dsn, table, queryString(req, "schema"), {
+          searchPath,
+        }),
       );
     });
   });
@@ -104,7 +176,7 @@ export function createApp(deps: {
       const schema = queryString(req, "schema");
       const dsn = queryString(req, "dsn");
       if (!table) {
-        res.status(400).json({ error: "table is required" });
+        res.json({ dictionaries: deps.dictionaries.list(dsn) });
         return;
       }
       res.json(
@@ -122,6 +194,8 @@ export function createApp(deps: {
       const body = (req.body ?? {}) as {
         schema?: unknown;
         table?: unknown;
+        tableDescription?: unknown;
+        rowCount?: unknown;
         sourceDsn?: unknown;
         columns?: unknown;
       };
@@ -150,6 +224,10 @@ export function createApp(deps: {
             scale: asTrimmed(row.scale),
             nullable: asTrimmed(row.nullable),
             isKey: Boolean(row.isKey ?? row.is_key),
+            keyOrder:
+              typeof (row.keyOrder ?? row.key_order) === "number"
+                ? Number(row.keyOrder ?? row.key_order)
+                : undefined,
           },
         ];
       });
@@ -157,10 +235,33 @@ export function createApp(deps: {
         deps.dictionaries.save({
           schema,
           table,
+          tableDescription: asTrimmed(body.tableDescription),
+          rowCount: asNonNegativeNumber(body.rowCount),
           sourceDsn: asTrimmed(body.sourceDsn),
           columns,
         }),
       );
+    });
+  });
+
+  app.delete("/api/dictionary/:schema/:table", async (req, res) => {
+    await withAuth(req, res, deps.verifyToken, async () => {
+      if (!deps.dictionaries.delete(req.params.schema, req.params.table)) {
+        res.status(404).json({ error: "dictionary not found" });
+        return;
+      }
+      res.json({ ok: true });
+    });
+  });
+
+  app.delete("/api/dictionary", async (req, res) => {
+    await withAuth(req, res, deps.verifyToken, async () => {
+      const dsn = queryString(req, "dsn");
+      if (!dsn) {
+        res.status(400).json({ error: "dsn is required" });
+        return;
+      }
+      res.json({ deleted: deps.dictionaries.deleteAll(dsn) });
     });
   });
 
@@ -287,8 +388,25 @@ function queryString(req: Request, name: string): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function parseSearchPathQuery(req: Request, name: string): string[] | undefined {
+  const value = queryString(req, name);
+  if (!value) {
+    return undefined;
+  }
+  const searchPath = value
+    .split(",")
+    .map((schema) => schema.trim())
+    .filter(Boolean);
+  return searchPath.length > 0 ? searchPath : undefined;
+}
+
 function asTrimmed(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function asNonNegativeNumber(value: unknown): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 }
 
 function parseKeyColumns(value: unknown): string[] | undefined {
@@ -304,6 +422,22 @@ function parseKeyColumns(value: unknown): string[] | undefined {
     return keys.length > 0 ? keys : undefined;
   }
   return undefined;
+}
+
+function parseStringList(value: unknown): string[] {
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  if (Array.isArray(value)) {
+    return value
+      .filter((item): item is string => typeof item === "string")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return [];
 }
 
 async function resolveDictionary(
@@ -328,12 +462,22 @@ async function resolveDictionary(
   const live = await catalog.describeTable(
     input.dsn,
     input.table,
-    input.schema || undefined,
+    input.schema.includes(",") ? undefined : input.schema || undefined,
+    input.schema.includes(",")
+      ? {
+          searchPath: input.schema
+            .split(",")
+            .map((item) => item.trim())
+            .filter(Boolean),
+        }
+      : undefined,
   );
   return {
     origin: "catalog" as const,
     schema: live.schema,
     table: live.table,
+    tableDescription: live.tableDescription,
+    rowCount: live.rowCount,
     sourceDsn: input.dsn,
     columns: live.columns.map((column: TableColumn) => ({
       columnNo: column.columnNo,

@@ -43,6 +43,8 @@ Tables `biz_data_dictionaries` and `biz_data_dictionary_columns` (`is_key`). Sto
 - **Read**: `GET /api/dictionary?table&schema&dsn` — SQLite first, then live `describeTable`.
 - **Row compare**: if the request has no `--key`, use SQLite key columns, else catalog PK, else all columns.
 
+`biz_data_dictionaries` persists `schema_name`, `table_name`, `table_description`, `row_count`, `source_dsn`, and update time. `biz_data_dictionary_columns` persists field name, description, type, length, scale, nullability, and key metadata. Existing databases receive missing dictionary metadata columns through conditional store migrations. The API supports deleting an individual dictionary by schema/table and all dictionaries associated with a DSN.
+
 ## Compare jobs
 
 `CompareJobRunner` posts results through `ComparisonEngine`:
@@ -54,6 +56,14 @@ Tables `biz_data_dictionaries` and `biz_data_dictionary_columns` (`is_key`). Sto
 | row-compare | Fetch both DSNs, compare in process (`rowCompare.ts`), limit default 10k |
 
 HTTP: `POST /api/jobs/:id/{schema,volume,row}-compare` (JWT).
+
+### Schema UI flow
+
+The React Schema view submits one table per request so its progress bar reflects completed live comparisons. `ComparisonEngine` produces `schemaComparison`, with one entry per unioned origin/target field and types, lengths, scales, and status (`Igual`, `Solo origen`, `Solo destino`, `Tipo distinto`). The UI aggregates those entries into one summary row per table and calculates integrity as the percentage of entries marked `Igual`.
+
+The summary table description is resolved after analysis from the source DSN's saved dictionary. When unavailable, it falls back to the live source catalog. No local dictionary fields are loaded for the Schema analysis. Selecting **Ver** opens a modal and requests the live `catalog/describe` data for both DSNs; the modal prefers source field descriptions and falls back to target descriptions.
+
+The shared `StatusProvider` renders transient notifications at the viewport bottom. It is the notification channel for frontend info, warnings, API errors, and complete SQL/ODBC diagnostic strings. Notifications close manually or after three seconds.
 
 Frontend: `/compare`, `/dictionary`, `/catalog`, `/jobs`.
 

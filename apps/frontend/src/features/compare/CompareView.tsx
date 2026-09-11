@@ -2,15 +2,28 @@ import { useEffect, useMemo, useState } from "react";
 import type { JobResult } from "@deltacore/shared";
 import { Play } from "lucide-react";
 import { apiClient } from "../../auth/api.client";
+import { useStatusNotification } from "../../components/StatusBanner";
 import { usePermissions } from "../../auth/usePermissions";
 import { CompareResult, type ColumnInfo } from "./CompareResult";
 
 type Mode = "schema" | "volume" | "row";
-type DataSource = { dsn: string; name: string; engine: string; searchPath: string[] };
+type DataSource = { id: string; dsn: string; name: string; engine: string; searchPath: string[] };
+type DictionarySummary = {
+  table: string;
+  tableDescription?: string;
+  columns?: ColumnInfo[];
+  keyColumns?: string[];
+};
+
+export type SchemaTableDetail = {
+  source: { schema: string; columns: Array<ColumnInfo & { length?: string; scale?: string }> };
+  target: { schema: string; columns: Array<ColumnInfo & { length?: string; scale?: string }> };
+};
 
 const JOBS_MODULE = "JOBS_CONFIG";
 
 export function CompareView() {
+  const { notify } = useStatusNotification();
   const { canWrite } = usePermissions(JOBS_MODULE);
   const [sources, setSources] = useState<DataSource[]>([]);
   const [mode, setMode] = useState<Mode>("row");
@@ -25,7 +38,18 @@ export function CompareView() {
   const [error, setError] = useState("");
   const [result, setResult] = useState<JobResult | null>(null);
   const [columns, setColumns] = useState<ColumnInfo[]>([]);
+  const [tableDescriptions, setTableDescriptions] = useState<Record<string, string>>({});
+  const [schemaProgress, setSchemaProgress] = useState<{
+    completed: number;
+    total: number;
+    table: string;
+  } | null>(null);
 
+  useEffect(() => {
+    if (error) {
+      notify(error, "error");
+    }
+  }, [error, notify]);
 
   useEffect(() => {
     void apiClient
@@ -34,31 +58,52 @@ export function CompareView() {
       .catch(() => undefined);
   }, []);
 
-  const tableName = table.split(",")[0]?.trim() ?? "";
+  useEffect(() => {
+    const selectedSource = sources.find((item) => item.dsn === sourceDsn);
+    if (selectedSource) {
+      setSourceSchema(selectedSource.searchPath.join(","));
+    }
+  }, [sources, sourceDsn]);
 
   useEffect(() => {
-    if (!tableName) {
+    const selectedTarget = sources.find((item) => item.dsn === targetDsn);
+    if (selectedTarget) {
+      setTargetSchema(selectedTarget.searchPath.join(","));
+    }
+  }, [sources, targetDsn]);
+
+  useEffect(() => {
+    if (mode !== "row") {
+      setColumns([]);
+      setKeys("");
+      return;
+    }
+    const tableNames = table
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean);
+    if (tableNames.length === 0) {
+      setColumns([]);
       return;
     }
     let cancelled = false;
     void apiClient
-      .get<{
-        origin?: string;
-        columns?: ColumnInfo[];
-        keyColumns?: string[];
-      }>("/dictionary", {
-        params: {
-          dsn: sourceDsn,
-          table: tableName,
-          ...(sourceSchema.trim() ? { schema: sourceSchema.trim() } : {}),
-        },
+      .get<{ dictionaries?: DictionarySummary[] }>("/dictionary", {
+        params: { dsn: sourceDsn },
       })
-      .then((response) => {
+      .then((sourceResponse) => {
         if (cancelled) {
           return;
         }
-        setColumns(response.data.columns ?? []);
-        const savedKeys = (response.data.keyColumns ?? []).filter(Boolean);
+        const sourceDictionaries = new Map(
+          (sourceResponse.data.dictionaries ?? []).map((dictionary) => [
+            dictionary.table.toUpperCase(),
+            dictionary,
+          ]),
+        );
+        const first = sourceDictionaries.get(tableNames[0]?.toUpperCase() ?? "");
+        setColumns(first?.columns ?? []);
+        const savedKeys = (first?.keyColumns ?? []).filter(Boolean);
         setKeys(savedKeys.join(","));
       })
       .catch(() => {
@@ -69,7 +114,7 @@ export function CompareView() {
     return () => {
       cancelled = true;
     };
-  }, [sourceDsn, sourceSchema, tableName]);
+  }, [mode, sourceDsn, table]);
 
   const sourceMeta = useMemo(
     () => sources.find((item) => item.dsn === sourceDsn),
@@ -84,6 +129,8 @@ export function CompareView() {
     if (!canWrite) return;
     setBusy(true);
     setError("");
+    setResult(null);
+    setSchemaProgress(null);
     try {
       const tables = table
         .split(",")
@@ -98,11 +145,7 @@ export function CompareView() {
         .filter(Boolean);
       const payload =
         mode === "schema"
-          ? await apiClient.post<JobResult>("/jobs/ui/schema-compare", {
-              sourceDsn,
-              targetDsn,
-              tables,
-            })
+          ? await runSchemaComparison(tables)
           : mode === "volume"
             ? await apiClient.post<JobResult>("/jobs/ui/volume-compare", {
                 sourceDsn,
@@ -120,7 +163,23 @@ export function CompareView() {
                 keyColumns,
                 limit: Number(limit) || undefined,
               });
-      setResult(payload.data);
+        const comparison = "data" in payload ? payload.data : payload;
+        if (comparison.status === "ERROR" || comparison.error) {
+          setError(comparison.error ?? "La comparación no pudo completarse.");
+          setResult(null);
+          return;
+        }
+        if (comparison.status === "SUCCESS") {
+          notify(
+            mode === "schema"
+              ? "Comparación de esquema finalizada sin diferencias."
+              : "Comparación finalizada correctamente.",
+            "success",
+          );
+        } else {
+          notify("Comparación finalizada con diferencias.", "warning");
+        }
+        setResult(comparison);
     } catch (err) {
       const message =
         (err as { response?: { data?: { error?: string } } }).response?.data?.error ??
@@ -129,7 +188,87 @@ export function CompareView() {
       setResult(null);
     } finally {
       setBusy(false);
+      setSchemaProgress(null);
     }
+  }
+
+  async function runSchemaComparison(tables: string[]): Promise<JobResult> {
+    const schemaComparison: NonNullable<JobResult["schemaComparison"]> = [];
+    const schemaDelta: NonNullable<JobResult["schemaDelta"]> = {};
+    let jobId = "";
+    for (const [index, tableName] of tables.entries()) {
+      setSchemaProgress({ completed: index, total: tables.length, table: tableName });
+      const response = await apiClient.post<JobResult>("/jobs/ui/schema-compare", {
+        sourceDsn,
+        targetDsn,
+        tables: [tableName],
+      });
+      const tableResult = response.data;
+      if (tableResult.status === "ERROR" || tableResult.error) {
+        throw new Error(
+          `${tableName}: ${tableResult.error ?? "La comparación de esquema no pudo completarse."}`,
+        );
+      }
+      jobId = tableResult.jobId;
+      schemaComparison.push(...(tableResult.schemaComparison ?? []));
+      Object.assign(
+        schemaDelta,
+        Object.fromEntries(
+          Object.entries(tableResult.schemaDelta ?? {}).map(([column, delta]) => [
+            `${tableName}.${column}`,
+            delta,
+          ]),
+        ),
+      );
+      setSchemaProgress({ completed: index + 1, total: tables.length, table: tableName });
+    }
+    await loadSchemaTableDescriptions(tables);
+    return {
+      jobId,
+      status: schemaComparison.some((column) => column.status !== "Igual")
+        ? "DIFFERENCE"
+        : "SUCCESS",
+      schemaDelta,
+      schemaComparison,
+    };
+  }
+
+  async function loadSchemaTableDescriptions(tables: string[]) {
+    const response = await apiClient.get<{ dictionaries?: DictionarySummary[] }>("/dictionary", {
+      params: { dsn: sourceDsn },
+    });
+    const localDescriptions = new Map(
+      (response.data.dictionaries ?? []).map((dictionary) => [
+        dictionary.table.toUpperCase(),
+        dictionary.tableDescription?.trim() ?? "",
+      ]),
+    );
+    const descriptions = Object.fromEntries(
+      tables.map((tableName) => [tableName.toUpperCase(), localDescriptions.get(tableName.toUpperCase()) ?? ""]),
+    ) as Record<string, string>;
+    await Promise.all(
+      tables
+        .filter((tableName) => !descriptions[tableName.toUpperCase()])
+        .map(async (tableName) => {
+          const catalog = await apiClient.get<{ tableDescription?: string }>("/catalog/describe", {
+            params: { dsn: sourceDsn, table: tableName, searchPath: sourceSchema },
+          });
+          descriptions[tableName.toUpperCase()] = catalog.data.tableDescription?.trim() ?? "";
+        }),
+    );
+    setTableDescriptions(descriptions);
+  }
+
+  async function loadSchemaTableDetail(tableName: string): Promise<SchemaTableDetail> {
+    const [source, target] = await Promise.all([
+      apiClient.get<SchemaTableDetail["source"]>("/catalog/describe", {
+        params: { dsn: sourceDsn, table: tableName, searchPath: sourceSchema },
+      }),
+      apiClient.get<SchemaTableDetail["target"]>("/catalog/describe", {
+        params: { dsn: targetDsn, table: tableName, searchPath: targetSchema },
+      }),
+    ]);
+    return { source: source.data, target: target.data };
   }
 
   return (
@@ -164,24 +303,36 @@ export function CompareView() {
       <div className="grid gap-3 md:grid-cols-2">
         <label className="fin-field">
           <span>DSN origen (--source)</span>
-          <input
-            className="input input-bordered input-sm"
-            list="dsn-list"
+          <select
+            className="select select-bordered select-sm"
             value={sourceDsn}
             onChange={(event) => setSourceDsn(event.target.value)}
-          />
+          >
+            {!sourceMeta ? <option value={sourceDsn}>{sourceDsn} (no persistido)</option> : null}
+            {sources.map((item) => (
+              <option key={item.id} value={item.dsn}>
+                {item.name} · {item.dsn}
+              </option>
+            ))}
+          </select>
           {sourceMeta ? (
             <span className="font-normal">*LIBL*: {sourceMeta.searchPath.join(", ")}</span>
           ) : null}
         </label>
         <label className="fin-field">
           <span>DSN destino (--target)</span>
-          <input
-            className="input input-bordered input-sm"
-            list="dsn-list"
+          <select
+            className="select select-bordered select-sm"
             value={targetDsn}
             onChange={(event) => setTargetDsn(event.target.value)}
-          />
+          >
+            {!targetMeta ? <option value={targetDsn}>{targetDsn} (no persistido)</option> : null}
+            {sources.map((item) => (
+              <option key={item.id} value={item.dsn}>
+                {item.name} · {item.dsn}
+              </option>
+            ))}
+          </select>
           {targetMeta ? (
             <span className="font-normal">*LIBL*: {targetMeta.searchPath.join(", ")}</span>
           ) : null}
@@ -197,19 +348,21 @@ export function CompareView() {
         {mode !== "schema" ? (
           <>
             <label className="fin-field">
-              <span>Esquema origen (--source-schema)</span>
+              <span>Esquema origen (prioridad, separado por coma)</span>
               <input
                 className="input input-bordered input-sm"
                 value={sourceSchema}
-                onChange={(event) => setSourceSchema(event.target.value)}
+                readOnly
+                aria-readonly="true"
               />
             </label>
             <label className="fin-field">
-              <span>Esquema destino (--target-schema)</span>
+              <span>Esquema destino (prioridad, separado por coma)</span>
               <input
                 className="input input-bordered input-sm"
                 value={targetSchema}
-                onChange={(event) => setTargetSchema(event.target.value)}
+                readOnly
+                aria-readonly="true"
               />
             </label>
           </>
@@ -217,7 +370,7 @@ export function CompareView() {
         {mode === "row" ? (
           <>
             <label className="fin-field">
-              <span>Clave (diccionario SQLite)</span>
+              <span>Clave (diccionario)</span>
               <input
                 className="input input-bordered input-sm"
                 placeholder="Se completa al cargar el diccionario guardado"
@@ -227,7 +380,7 @@ export function CompareView() {
               <span className="font-normal">
                 {keys
                   ? `Campos clave: ${keys}`
-                  : "No hay claves en SQLite. Defínalas en el menú Diccionario."}
+                  : "No hay claves definidas. Configúrelas en el menú Diccionario."}
               </span>
             </label>
             <label className="fin-field">
@@ -242,14 +395,6 @@ export function CompareView() {
         ) : null}
       </div>
 
-      <datalist id="dsn-list">
-        {sources.map((item) => (
-          <option key={item.dsn} value={item.dsn}>
-            {item.name}
-          </option>
-        ))}
-      </datalist>
-
       <button
         type="button"
         className="btn fin-btn-primary btn-sm"
@@ -260,12 +405,28 @@ export function CompareView() {
         {busy ? "Ejecutando…" : "Ejecutar comparación"}
       </button>
 
-      {error ? (
-        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-          {error}
-        </p>
+      {schemaProgress ? (
+        <div className="space-y-1" role="status">
+          <div className="flex flex-wrap justify-between gap-2 text-xs">
+            <span>Analizando esquema: {schemaProgress.table}</span>
+            <span>{schemaProgress.completed} / {schemaProgress.total} tabla(s)</span>
+          </div>
+          <progress
+            className="progress progress-primary w-full"
+            value={schemaProgress.completed}
+            max={Math.max(schemaProgress.total, 1)}
+          />
+        </div>
       ) : null}
-      {result ? <CompareResult result={result} columns={columns} /> : null}
+
+      {result ? (
+        <CompareResult
+          result={result}
+          columns={columns}
+          tableDescriptions={tableDescriptions}
+          onLoadSchemaDetail={loadSchemaTableDetail}
+        />
+      ) : null}
     </section>
   );
 }

@@ -28,9 +28,22 @@ stop_listen() {
   kill ${pids} 2>/dev/null || true
 }
 
+stop_orphaned_watchers() {
+  local pattern="$1"
+  local pids
+  pids="$(pgrep -f "${pattern}" 2>/dev/null || true)"
+  if [[ -n "${pids}" ]]; then
+    echo "Stopping orphaned app watchers: ${pids}"
+    # shellcheck disable=SC2086
+    kill ${pids} 2>/dev/null || true
+  fi
+}
+
 if [[ "${INFRA_ONLY}" -eq 0 ]]; then
   stop_listen "${VITE_DEV_PORT}" "frontend (Vite)"
   stop_listen "${PORT}" "backend (Express)"
+  stop_orphaned_watchers "tsx watch.*src/adapters/http/server.ts"
+  stop_orphaned_watchers "vite.*apps/frontend"
 fi
 
 if [[ "${APPS_ONLY}" -eq 1 ]]; then

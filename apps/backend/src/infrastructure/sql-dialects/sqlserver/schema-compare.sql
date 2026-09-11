@@ -1,4 +1,7 @@
-SELECT COLUMN_NAME AS column_name, DATA_TYPE AS data_type
+SELECT COLUMN_NAME AS column_name,
+       DATA_TYPE AS data_type,
+       CHARACTER_MAXIMUM_LENGTH AS length,
+       NUMERIC_SCALE AS scale
 FROM INFORMATION_SCHEMA.COLUMNS
 WHERE TABLE_SCHEMA = '{{schema}}'
   AND TABLE_NAME IN ({{tables}})

@@ -16,13 +16,16 @@ const app = createApp({
   rbac: runtime.rbac,
   catalog: runtime.catalog,
   dictionaries: runtime.dictionaries,
-  listDataSources: () => runtime.dataSources.list(),
+  listDataSources: (search) => runtime.dataSources.list(search),
+  saveDataSource: (input) => runtime.dataSources.save(input),
+  deleteDataSource: (id) => runtime.dataSources.remove(id),
   verifyToken: createJwtVerifier(issuer),
   corsOrigin,
 });
 
 app.listen(port, () => {
   console.info(
-    `DeltaCore API :${port} issuer=${issuer} cors=${corsOrigin}`,
+    `DeltaCore API :${port} catalog=${process.env.DB2_CATALOG ?? "luw"} ` +
+      `issuer=${issuer} cors=${corsOrigin}`,
   );
 });

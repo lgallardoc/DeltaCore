@@ -15,38 +15,26 @@ export class SchemaResolverService implements ISchemaResolver {
       throw new Error("No search path (*LIBL) defined for this data source.");
     }
 
-    const sql = this.queryProvider.buildQuery(
-      connection.getEngineType(),
-      "find_table_schemas",
-      { tableName, schemaList: quoteSchemaList(searchPath) },
-    );
-
-    const foundSchemas = (
-      await connection.query<Record<string, unknown>>(sql)
-    )
-      .map((row) => catalogSchemaName(row))
-      .filter(Boolean);
-
-    if (foundSchemas.length === 0) {
-      throw new Error(
-        `Table ${tableName} not found in path: ${searchPath.join(", ")}`,
+    for (const schema of searchPath) {
+      const sql = this.queryProvider.buildQuery(
+        connection.getEngineType(),
+        "find_table_schemas",
+        { tableName, schemaList: quoteSchemaList([schema]) },
       );
-    }
+      const foundSchema = (
+        await connection.query<Record<string, unknown>>(sql)
+      )
+        .map((row) => catalogSchemaName(row))
+        .find((name) => name.toUpperCase() === schema.toUpperCase());
 
-    let winningSchema = foundSchemas[0];
-    let highestPriorityIndex = searchPath.length;
-
-    for (const schemaName of foundSchemas) {
-      const index = searchPath.findIndex(
-        (schema) => schema.toUpperCase() === schemaName.toUpperCase(),
-      );
-      if (index !== -1 && index < highestPriorityIndex) {
-        highestPriorityIndex = index;
-        winningSchema = schemaName;
+      if (foundSchema) {
+        return foundSchema;
       }
     }
 
-    return winningSchema;
+    throw new Error(
+      `Table ${tableName} not found in path: ${searchPath.join(", ")}`,
+    );
   }
 }
 
@@ -54,7 +42,22 @@ export function parseSearchPath(raw: string | null | undefined): string[] {
   if (!raw) {
     return [];
   }
-  const parsed = JSON.parse(raw) as unknown;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch {
+    const legacyList = raw.match(/^\[\s*([^\]]*?)\s*\]$/);
+    if (!legacyList) {
+      throw new Error("search_path must be a JSON array of strings");
+    }
+
+    parsed = legacyList[1]
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
   if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== "string")) {
     throw new Error("search_path must be a JSON array of strings");
   }

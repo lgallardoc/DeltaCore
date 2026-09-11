@@ -5,6 +5,7 @@ import type {
   ISqlQueryProvider,
   JobResult,
   RowCompareOptions,
+  SchemaColumnComparison,
 } from "@deltacore/shared";
 import type { ISchemaResolver } from "../domain/ports/ISchemaResolver.js";
 import { sqlIdent } from "../domain/sqlLiterals.js";
@@ -19,6 +20,8 @@ import {
 type ColumnMeta = {
   column_name: string;
   data_type: string;
+  length?: string;
+  scale?: string;
 };
 
 type VolumeRow = {
@@ -43,6 +46,7 @@ export class ComparisonEngine implements IComparisonEngine {
     const jobId = this.newJobId();
     try {
       const schemaDelta: Record<string, any> = {};
+      const schemaComparison: SchemaColumnComparison[] = [];
       for (const table of tables) {
         const sourceSchema = await this.schemaResolver.resolveTableSchema(
           sourceDb,
@@ -68,17 +72,17 @@ export class ComparisonEngine implements IComparisonEngine {
         const sourceCols = await sourceDb.query<ColumnMeta>(sourceSql);
         const targetCols = await targetDb.query<ColumnMeta>(targetSql);
         Object.assign(schemaDelta, diffColumns(sourceCols, targetCols));
+        schemaComparison.push(...compareSchemaColumns(table, sourceCols, targetCols));
       }
-      const status = Object.keys(schemaDelta).length > 0 ? "DIFFERENCE" : "SUCCESS";
-      const result: JobResult = { jobId, status, schemaDelta };
+      const status = schemaComparison.some((column) => column.status !== "Igual")
+        ? "DIFFERENCE"
+        : "SUCCESS";
+      const result: JobResult = { jobId, status, schemaDelta, schemaComparison };
       await this.audit.logAction("system", "run", result);
       return result;
     } catch (error) {
-      const result: JobResult = { jobId, status: "ERROR" };
-      await this.audit.logAction("system", "run", {
-        ...result,
-        error: String(error),
-      });
+      const result: JobResult = { jobId, status: "ERROR", error: String(error) };
+      await this.audit.logAction("system", "run", result);
       return result;
     }
   }
@@ -138,11 +142,8 @@ export class ComparisonEngine implements IComparisonEngine {
       await this.audit.logAction("system", "run", result);
       return result;
     } catch (error) {
-      const result: JobResult = { jobId, status: "ERROR" };
-      await this.audit.logAction("system", "run", {
-        ...result,
-        error: String(error),
-      });
+      const result: JobResult = { jobId, status: "ERROR", error: String(error) };
+      await this.audit.logAction("system", "run", result);
       return result;
     }
   }
@@ -247,11 +248,8 @@ export class ComparisonEngine implements IComparisonEngine {
       await this.audit.logAction("system", "run", result);
       return result;
     } catch (error) {
-      const result: JobResult = { jobId, status: "ERROR" };
-      await this.audit.logAction("system", "run", {
-        ...result,
-        error: String(error),
-      });
+      const result: JobResult = { jobId, status: "ERROR", error: String(error) };
+      await this.audit.logAction("system", "run", result);
       return result;
     }
   }
@@ -297,13 +295,17 @@ export class ComparisonEngine implements IComparisonEngine {
     table: string,
     override?: string,
   ): Promise<string> {
-    if (override) {
-      return sqlIdent(override);
+    const candidates = override
+      ?.split(",")
+      .map((schema) => schema.trim())
+      .filter(Boolean);
+    if (candidates?.length === 1) {
+      return sqlIdent(candidates[0]);
     }
     return this.schemaResolver.resolveTableSchema(
       db,
       table,
-      this.searchPathFor(db),
+      candidates && candidates.length > 0 ? candidates : this.searchPathFor(db),
     );
   }
 }
@@ -325,4 +327,43 @@ function diffColumns(
     }
   }
   return delta;
+}
+
+function compareSchemaColumns(
+  table: string,
+  source: ColumnMeta[],
+  target: ColumnMeta[],
+): SchemaColumnComparison[] {
+  const sourceMap = new Map(
+    source.map((column) => [column.column_name.toUpperCase(), column]),
+  );
+  const targetMap = new Map(
+    target.map((column) => [column.column_name.toUpperCase(), column]),
+  );
+  const names = [...new Set([...sourceMap.keys(), ...targetMap.keys()])].sort();
+
+  return names.map((name) => {
+    const sourceColumn = sourceMap.get(name);
+    const targetColumn = targetMap.get(name);
+    const sourceType = sourceColumn?.data_type ?? null;
+    const targetType = targetColumn?.data_type ?? null;
+    return {
+      table,
+      column: sourceColumn?.column_name ?? targetColumn?.column_name ?? name,
+      sourceType,
+      targetType,
+      sourceLength: sourceColumn?.length ?? null,
+      targetLength: targetColumn?.length ?? null,
+      sourceScale: sourceColumn?.scale ?? null,
+      targetScale: targetColumn?.scale ?? null,
+      status:
+        sourceType === null
+          ? "Solo destino"
+          : targetType === null
+            ? "Solo origen"
+            : sourceType === targetType
+              ? "Igual"
+              : "Tipo distinto",
+    };
+  });
 }
