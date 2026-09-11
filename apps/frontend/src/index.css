@@ -111,6 +111,13 @@ span {
 .btn {
   font-family: inherit;
   font-weight: 600;
+  min-height: 2rem;
+  height: 2rem;
+}
+
+button {
+  min-height: 2rem;
+  height: 2rem;
 }
 
 .btn:not(.fin-btn-primary):not(.btn-ghost) {
@@ -170,6 +177,27 @@ span {
 .table tbody tr[aria-selected="true"] > :where(th, td),
 .table tbody tr.bg-\[color\:var\(--brand-soft\)\] > :where(th, td) {
   background: var(--brand-soft);
+}
+
+.fin-table-sticky-key {
+  position: sticky !important;
+  left: 0 !important;
+  z-index: 2 !important;
+  min-width: 6rem;
+  box-shadow: 1px 0 0 var(--line), 0 0 8px rgba(15, 23, 42, 0.08);
+}
+
+.table thead .fin-table-sticky-key {
+  top: 0 !important;
+  left: 0 !important;
+  z-index: 10 !important;
+  background: var(--brand-soft) !important;
+  color: var(--ink) !important;
+}
+
+.table tbody .fin-table-sticky-key {
+  z-index: 2 !important;
+  background: #ffffff;
 }
 
 .badge {

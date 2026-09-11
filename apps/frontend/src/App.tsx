@@ -8,6 +8,7 @@ import { CatalogView } from "./features/catalog/CatalogView";
 import { DictionaryView } from "./features/dictionary/DictionaryView";
 import { DictionaryEditView } from "./features/dictionary/DictionaryEditView";
 import { CompareView } from "./features/compare/CompareView";
+import { RowDetailView } from "./features/compare/RowDetailView";
 import { JobDetail } from "./features/jobs/JobDetail";
 import { JobList } from "./features/jobs/JobList";
 
@@ -28,6 +29,7 @@ export function App() {
           >
             <Route path="/" element={<Navigate to="/compare" replace />} />
             <Route path="/compare" element={<CompareView />} />
+            <Route path="/compare/rows/:kind" element={<RowDetailView />} />
             <Route path="/dictionary" element={<DictionaryView />} />
             <Route path="/dictionary/edit" element={<DictionaryEditView />} />
             <Route path="/catalog" element={<CatalogView />} />

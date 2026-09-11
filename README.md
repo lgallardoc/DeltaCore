@@ -120,12 +120,12 @@ Keycloak lab: `http://localhost:5173` (user `developer` / `dev123`).
 
 | Route | Purpose |
 | --- | --- |
-| `/compare` | Schema, volume, and row compare. Choose DSNs, table, schemas, optional key, limit. Dictionary **save** is not on this page. |
+| `/compare` | Schema, volume, and row compare. Choose origin/target DSNs, then select one or more saved local dictionaries from the origin. |
 | `/dictionary` | Manage saved dictionaries by DSN: load local/catalog entries, edit fields/keys, and remove one table or all dictionaries for a DSN. |
 | `/catalog` | List schemas and tables for a DSN |
 | `/jobs` | Comparison job list / detail |
 
-Row compare fills **Clave** from SQLite (`GET /api/dictionary`) when keys were saved in Diccionario. If none, the engine uses catalog PK, then all columns. Result headers use dictionary descriptions when present.
+The comparison selector lists local dictionaries from the origin DSN with their table descriptions, column counts, and saved keys. Selected tables are placed first in the list and the execution button remains disabled until at least one table is selected. Row compare uses the saved key for each selected table; if no key is saved, the engine uses catalog PK, then all columns. Result headers use dictionary descriptions when present.
 
 ### Schema comparison UI
 
@@ -134,6 +134,14 @@ Schema comparison analyzes each requested table sequentially against the live or
 The summary displays one row per table: table name, description, integrity percentage, final status, and **Ver**. The description comes from the saved dictionary for the origin DSN; if it is absent, the application queries the live origin catalog. The summary does not load local column dictionaries.
 
 **Ver** opens a modal that fetches `GET /api/catalog/describe` from both DSNs on demand. It shows field descriptions (origin first, target as fallback), data types, lengths, decimal scales, and the field comparison status.
+
+### Volume and row comparison UI
+
+Volume returns a consolidated table with one row per selected table: description, origin and target record counts, record delta, origin and target physical sizes, and size delta. IBM i physical size comes from `QSYS2.SYSTABLESTAT.DATA_SIZE` and is presented using Chilean numeric formatting.
+
+Row comparison returns a consolidated table with record counts and links for changed rows, rows only in origin, and rows only in target. Each link opens a detail page for that table and category. Changed-row details display the origin value on the first line and target value on the second line; changed cells carry an alert marker. The first key column remains fixed while scrolling. Detail pages resolve the local source dictionary and source metadata again so current table/field descriptions and assigned DSN names are visible.
+
+Every detail page with **Volver** returns to `/compare` with the original mode, DSNs, limit, selected tables, and results restored.
 
 All temporary success, warning, and error notices use the global bottom banner. It has a close button and closes automatically after three seconds. ODBC and SQL errors are displayed in full, including available driver diagnostics.
 

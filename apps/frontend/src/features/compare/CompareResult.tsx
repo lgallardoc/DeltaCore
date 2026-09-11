@@ -1,12 +1,13 @@
 import { Eye, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import type {
   JobResult,
-  RowValueMap,
   SchemaColumnComparison,
   SchemaColumnStatus,
 } from "@deltacore/shared";
 import type { SchemaTableDetail } from "./CompareView";
+import { formatNumber } from "../../utils/format";
 
 export type ColumnInfo = {
   columnName: string;
@@ -19,6 +20,11 @@ type Props = {
   columns?: ColumnInfo[];
   tableDescriptions?: Record<string, string>;
   onLoadSchemaDetail?: (table: string) => Promise<SchemaTableDetail>;
+  sourceDsn?: string;
+  targetDsn?: string;
+  sourceName?: string;
+  targetName?: string;
+  compareSession?: unknown;
 };
 
 export function CompareResult({
@@ -26,6 +32,11 @@ export function CompareResult({
   columns = [],
   tableDescriptions = {},
   onLoadSchemaDetail,
+  sourceDsn,
+  targetDsn,
+  sourceName,
+  targetName,
+  compareSession,
 }: Props) {
   const labels = columnMap(columns);
   const schemaEntries = Object.entries(result.schemaDelta ?? {});
@@ -34,51 +45,51 @@ export function CompareResult({
   const [schemaDetail, setSchemaDetail] = useState<SchemaTableDetail | null>(null);
   const [schemaDetailError, setSchemaDetailError] = useState("");
   const [schemaDetailBusy, setSchemaDetailBusy] = useState(false);
-  const samples = result.rowDelta?.samples;
   const schemaTables = summarizeSchemaComparison(schemaComparison, tableDescriptions);
+  const tableName = result.table ?? "Tabla no disponible";
+  const tableDescription = tableDescriptions[tableName.toUpperCase()] ?? "";
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-4 border-t border-[color:var(--line)] pt-4 first:border-t-0 first:pt-0">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h3 className="font-code text-base font-bold">{tableName}</h3>
+          <p className="fin-muted text-sm">{tableDescription || "Sin descripción de tabla"}</p>
+        </div>
+        <p className="fin-muted text-xs">
+          {sourceName || sourceDsn || "Origen"} <span className="dc-origin">origen</span>
+          {" · "}
+          {targetName || targetDsn || "Destino"} <span className="dc-target">destino</span>
+        </p>
+      </div>
       {result.volumeDelta != null ? (
         <div className="stats stats-vertical w-full border shadow lg:stats-horizontal">
           <div className="stat">
-            <div className="stat-title">Origen</div>
-            <div className="stat-value dc-origin text-2xl">{result.sourceCount ?? "—"}</div>
+            <div className="stat-title">Registros origen</div>
+            <div className="stat-value dc-origin text-2xl">{formatRecordCount(result.sourceCount)}</div>
           </div>
           <div className="stat">
-            <div className="stat-title">Destino</div>
-            <div className="stat-value dc-target text-2xl">{result.targetCount ?? "—"}</div>
+            <div className="stat-title">Registros destino</div>
+            <div className="stat-value dc-target text-2xl">{formatRecordCount(result.targetCount)}</div>
           </div>
           <div className="stat">
-            <div className="stat-title">Delta</div>
-            <div className="stat-value text-2xl text-amber-700">{result.volumeDelta}</div>
+            <div className="stat-title">Diferencia de registros</div>
+            <div className="stat-value text-2xl text-amber-700">{formatNumber(result.volumeDelta)}</div>
           </div>
         </div>
       ) : null}
 
       {result.rowDelta ? (
-        <div className="overflow-x-auto">
-          <table className="table table-xs">
-            <thead>
-              <tr>
-                <th>Solo origen</th>
-                <th>Solo destino</th>
-                <th>Cambiadas</th>
-                <th>Clave</th>
-                <th>Truncado</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>{result.rowDelta.onlyInSource}</td>
-                <td>{result.rowDelta.onlyInTarget}</td>
-                <td>{result.rowDelta.changed}</td>
-                <td>Clave</td>
-                <td>{result.rowDelta.truncated ? "sí" : "no"}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <RowDeltaCards
+          result={result}
+          labels={labels}
+          tableDescriptions={tableDescriptions}
+          sourceDsn={sourceDsn}
+          targetDsn={targetDsn}
+          sourceName={sourceName}
+          targetName={targetName}
+          compareSession={compareSession}
+        />
       ) : null}
 
       {schemaTables.length > 0 ? (
@@ -138,54 +149,6 @@ export function CompareResult({
         </ResultTable>
       ) : null}
 
-      {samples?.changed.length ? (
-        <WideDiffTable
-          title="Filas cambiadas (muestra)"
-          keyColumns={result.rowDelta?.keyColumns ?? []}
-          labels={labels}
-          compareValues
-          rows={samples.changed.map((change) => ({
-            key: change.key,
-            values: Object.fromEntries(
-              change.columns.map((col) => [
-                col.column,
-                { source: col.source, target: col.target },
-              ]),
-            ),
-          }))}
-        />
-      ) : null}
-
-      {samples?.onlyInSource.length ? (
-        <WideDiffTable
-          title="Solo en origen (muestra)"
-          keyColumns={result.rowDelta?.keyColumns ?? []}
-          labels={labels}
-          rows={samples.onlyInSource.map((row) => ({
-            key: pick(row, result.rowDelta?.keyColumns ?? []),
-            values: Object.fromEntries(
-              Object.entries(row)
-                .filter(([column]) => !isKeyColumn(column, result.rowDelta?.keyColumns ?? []))
-                .map(([column, value]) => [column, { source: value, target: "" }]),
-            ),
-          }))}
-        />
-      ) : null}
-      {samples?.onlyInTarget.length ? (
-        <WideDiffTable
-          title="Solo en destino (muestra)"
-          keyColumns={result.rowDelta?.keyColumns ?? []}
-          labels={labels}
-          rows={samples.onlyInTarget.map((row) => ({
-            key: pick(row, result.rowDelta?.keyColumns ?? []),
-            values: Object.fromEntries(
-              Object.entries(row)
-                .filter(([column]) => !isKeyColumn(column, result.rowDelta?.keyColumns ?? []))
-                .map(([column, value]) => [column, { source: "", target: value }]),
-            ),
-          }))}
-        />
-      ) : null}
       {selectedSchemaTable ? (
         <SchemaDetailModal
           table={selectedSchemaTable}
@@ -221,6 +184,65 @@ export function CompareResult({
       setSchemaDetailBusy(false);
     }
   }
+}
+
+function RowDeltaCards({
+  result,
+  labels,
+  tableDescriptions,
+  sourceDsn,
+  targetDsn,
+  sourceName,
+  targetName,
+  compareSession,
+}: {
+  result: JobResult;
+  labels: Map<string, string>;
+  tableDescriptions: Record<string, string>;
+  sourceDsn?: string;
+  targetDsn?: string;
+  sourceName?: string;
+  targetName?: string;
+  compareSession?: unknown;
+}) {
+  const delta = result.rowDelta;
+  if (!delta) {
+    return null;
+  }
+  const cards = [
+    { kind: "changed", title: "Filas cambiadas", count: delta.changed },
+    { kind: "onlyInSource", title: "Solo en origen", count: delta.onlyInSource },
+    { kind: "onlyInTarget", title: "Solo en destino", count: delta.onlyInTarget },
+  ] as const;
+
+  return (
+    <div className="grid gap-3 md:grid-cols-3">
+      {cards.map((card) => (
+        <Link
+          key={card.kind}
+          to={`/compare/rows/${card.kind}`}
+          state={{
+            kind: card.kind,
+            rowDelta: delta,
+            labels: Object.fromEntries(labels),
+            table: result.table ?? "",
+            tableDescription: tableDescriptions[result.table?.toUpperCase() ?? ""] ?? "",
+            sourceDsn,
+            targetDsn,
+            sourceName,
+            targetName,
+            from: "/compare",
+            compare: compareSession,
+          }}
+          className="fin-panel-soft rounded-lg border p-4 transition hover:border-[color:var(--brand)] hover:bg-[color:var(--brand-soft)]"
+        >
+          <p className="fin-muted text-xs font-semibold">{card.title}</p>
+          <p className="mt-1 text-2xl font-bold">{formatNumber(card.count)}</p>
+          <p className="fin-muted mt-1 text-xs">registros</p>
+        </Link>
+      ))}
+    </div>
+  );
 }
 
 function SchemaDetailModal({
@@ -292,103 +314,6 @@ function SchemaDetailModal({
   );
 }
 
-function WideDiffTable({
-  title,
-  keyColumns,
-  labels,
-  rows,
-  compareValues = false,
-}: {
-  title: string;
-  keyColumns: string[];
-  labels: Map<string, string>;
-  compareValues?: boolean;
-  rows: Array<{
-    key: RowValueMap;
-    values: Record<string, { source: string; target: string }>;
-  }>;
-}) {
-  const diffFields: string[] = [];
-  for (const row of rows) {
-    for (const field of Object.keys(row.values)) {
-      if (!diffFields.some((name) => name.toUpperCase() === field.toUpperCase())) {
-        diffFields.push(field);
-      }
-    }
-  }
-
-  return (
-    <ResultTable
-      title={title}
-      hint={
-        compareValues
-          ? "Una fila por registro. Izquierda: clave. Derecha: campos con diferencia (arriba origen, abajo destino)."
-          : "Una fila por registro. Izquierda: clave. Derecha: resto de campos."
-      }
-    >
-      <thead>
-        <tr>
-          <th className="text-xs font-semibold">Clave</th>
-          {diffFields.map((field) => (
-            <th
-              key={field}
-              title={field}
-              className="max-w-[11rem] whitespace-normal text-xs font-semibold"
-            >
-              {headerText(field, labels)}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row, index) => (
-          <tr key={index}>
-            <td className="font-code whitespace-pre-wrap">
-              {keyColumns
-                .map(
-                  (column) =>
-                    row.key[column] ??
-                    row.key[column.toUpperCase()] ??
-                    "",
-                )
-                .filter(Boolean)
-                .join(" · ")}
-            </td>
-            {diffFields.map((field) => {
-              const cell =
-                row.values[field] ??
-                row.values[field.toUpperCase()] ??
-                Object.entries(row.values).find(
-                  ([name]) => name.toUpperCase() === field.toUpperCase(),
-                )?.[1];
-              if (!cell) {
-                return <td key={field} />;
-              }
-              if (!compareValues) {
-                return (
-                  <td key={field} className="font-code whitespace-pre-wrap">
-                    {cell.source || cell.target}
-                  </td>
-                );
-              }
-              return (
-                <td key={field} className="align-top">
-                  <div className="font-code dc-origin whitespace-pre-wrap text-[11px]">
-                    {cell.source}
-                  </div>
-                  <div className="font-code dc-target whitespace-pre-wrap text-[11px]">
-                    {cell.target}
-                  </div>
-                </td>
-              );
-            })}
-          </tr>
-        ))}
-      </tbody>
-    </ResultTable>
-  );
-}
-
 function ResultTable({
   title,
   hint,
@@ -414,28 +339,16 @@ function headerText(field: string, labels: Map<string, string>): string {
   return description || field;
 }
 
-function pick(row: RowValueMap, columns: string[]): RowValueMap {
-  const out: RowValueMap = {};
-  for (const column of columns) {
-    out[column] =
-      row[column] ??
-      row[column.toUpperCase()] ??
-      Object.entries(row).find(([name]) => name.toUpperCase() === column.toUpperCase())?.[1] ??
-      "";
-  }
-  return out;
-}
-
-function isKeyColumn(column: string, keyColumns: string[]): boolean {
-  return keyColumns.some((key) => key.toUpperCase() === column.toUpperCase());
-}
-
 function schemaStatusClass(status: SchemaColumnStatus): string {
   return status === "Igual"
     ? "text-emerald-700"
     : status === "Tipo distinto"
       ? "text-amber-700"
       : "text-red-700";
+}
+
+function formatRecordCount(value: number | undefined): string {
+  return value == null ? "—" : formatNumber(value);
 }
 
 function summarizeSchemaComparison(

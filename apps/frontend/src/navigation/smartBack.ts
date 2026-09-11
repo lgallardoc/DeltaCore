@@ -15,4 +15,5 @@ export type SmartBackState = {
   filters?: JobListFilters;
   dictionary?: DictionaryListState;
   dictionaryPanel?: unknown;
+  compare?: unknown;
 };

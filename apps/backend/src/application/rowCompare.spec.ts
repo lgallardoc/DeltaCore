@@ -33,7 +33,10 @@ describe("rowCompare", () => {
     expect(delta.samples.changed[0]).toEqual({
       key: { ID: "2" },
       columns: [{ column: "NAME", source: "B", target: "B-changed" }],
+      sourceRow: { ID: "2", NAME: "B" },
+      targetRow: { ID: "2", NAME: "B-changed" },
     });
+    expect(delta.details.onlyInSource).toEqual([{ ID: "3", NAME: "C" }]);
   });
 
   it("normalizes mixed-case ODBC keys", () => {

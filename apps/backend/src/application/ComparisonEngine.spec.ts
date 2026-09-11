@@ -111,8 +111,8 @@ describe("ComparisonEngine", () => {
       schemaResolver,
       searchPathFor,
     );
-    const source = mockDb([{ pattern_id: "p1", row_count: 10 }]);
-    const target = mockDb([{ pattern_id: "p1", row_count: 7 }]);
+    const source = mockDb([{ pattern_id: "p1", row_count: 10, data_size: 2048 }]);
+    const target = mockDb([{ pattern_id: "p1", row_count: 7, data_size: 1024 }]);
 
     const result = await engine.executeVolumeCompare(source, target, "p1");
 
@@ -120,6 +120,9 @@ describe("ComparisonEngine", () => {
     expect(result.volumeDelta).toBe(3);
     expect(result.sourceCount).toBe(10);
     expect(result.targetCount).toBe(7);
+    expect(result.sourceDataSize).toBe(2048);
+    expect(result.targetDataSize).toBe(1024);
+    expect(result.dataSizeDelta).toBe(1024);
     expect(result.table).toBe("P1");
   });
 

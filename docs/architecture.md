@@ -52,8 +52,8 @@ Tables `biz_data_dictionaries` and `biz_data_dictionary_columns` (`is_key`). Sto
 | Mode | What |
 | --- | --- |
 | schema-compare | Column names/types (`schema-compare.sql`) |
-| volume-compare | `COUNT(*)` per side |
-| row-compare | Fetch both DSNs, compare in process (`rowCompare.ts`), limit default 10k |
+| volume-compare | `COUNT(*)` and physical table size per side; IBM i reads `QSYS2.SYSTABLESTAT.DATA_SIZE` |
+| row-compare | Fetch both DSNs, compare in process (`rowCompare.ts`), limit default 10k; returns full categorized details within the limit |
 
 HTTP: `POST /api/jobs/:id/{schema,volume,row}-compare` (JWT).
 
@@ -64,6 +64,14 @@ The React Schema view submits one table per request so its progress bar reflects
 The summary table description is resolved after analysis from the source DSN's saved dictionary. When unavailable, it falls back to the live source catalog. No local dictionary fields are loaded for the Schema analysis. Selecting **Ver** opens a modal and requests the live `catalog/describe` data for both DSNs; the modal prefers source field descriptions and falls back to target descriptions.
 
 The shared `StatusProvider` renders transient notifications at the viewport bottom. It is the notification channel for frontend info, warnings, API errors, and complete SQL/ODBC diagnostic strings. Notifications close manually or after three seconds.
+
+### Volume and row UI flow
+
+`/compare` loads source-DSN local dictionaries from SQLite and uses them as the selectable table set. It displays table description, column count, and stored key fields. The selected tables are sorted first and the run action is disabled with an empty selection.
+
+Volume results are rendered in a single table, one result row per selected table, with source/target record counts, record delta, physical size per side, and size delta. Row results are rendered in a single table with navigable counts for each difference category. `RowDelta.details` preserves all changed, source-only, and target-only records within the row limit, while `samples` remains available for compatibility.
+
+Row detail pages receive an explicit `SmartBackState.compare` snapshot. They return to `/compare` with mode, DSNs, limit, selected tables, and result rows restored. On entry they refresh the source dictionary and data-source names so the current local descriptions and DSN labels appear in the detail table. Changed cells display source and target values plus a visible difference marker; the key column and header remain pinned during scrolling.
 
 Frontend: `/compare`, `/dictionary`, `/catalog`, `/jobs`.
 

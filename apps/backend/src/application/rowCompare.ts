@@ -84,6 +84,8 @@ export function compareNormalizedRows(input: {
         changed.push({
           key: pick(sourceRows[i], keyColumns),
           columns,
+          sourceRow: pick(sourceRows[i], comparedColumns),
+          targetRow: pick(targetRows[i], comparedColumns),
         });
       }
     }
@@ -109,6 +111,11 @@ export function compareNormalizedRows(input: {
       onlyInSource: onlyInSource.slice(0, sampleSize),
       onlyInTarget: onlyInTarget.slice(0, sampleSize),
       changed: changed.slice(0, sampleSize),
+    },
+    details: {
+      onlyInSource,
+      onlyInTarget,
+      changed,
     },
   };
 }

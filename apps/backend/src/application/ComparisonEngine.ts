@@ -27,6 +27,7 @@ type ColumnMeta = {
 type VolumeRow = {
   pattern_id: string;
   row_count: number;
+  data_size?: number;
 };
 
 export class ComparisonEngine implements IComparisonEngine {
@@ -112,6 +113,8 @@ export class ComparisonEngine implements IComparisonEngine {
         {
           patternId: table,
           qualifiedTable: `${sqlIdent(sourceSchema)}.${table}`,
+          schema: sourceSchema,
+          tableName: table,
         },
       );
       const targetSql = this.queries.buildQuery(
@@ -120,6 +123,8 @@ export class ComparisonEngine implements IComparisonEngine {
         {
           patternId: table,
           qualifiedTable: `${sqlIdent(targetSchema)}.${table}`,
+          schema: targetSchema,
+          tableName: table,
         },
       );
 
@@ -127,14 +132,20 @@ export class ComparisonEngine implements IComparisonEngine {
       const targetRows = await targetDb.query<VolumeRow>(targetSql);
       const sourceCount = Number(sourceRows[0]?.row_count ?? 0);
       const targetCount = Number(targetRows[0]?.row_count ?? 0);
+      const sourceDataSize = Number(sourceRows[0]?.data_size ?? 0);
+      const targetDataSize = Number(targetRows[0]?.data_size ?? 0);
       const volumeDelta = sourceCount - targetCount;
-      const status = volumeDelta === 0 ? "SUCCESS" : "DIFFERENCE";
+      const dataSizeDelta = sourceDataSize - targetDataSize;
+      const status = volumeDelta === 0 && dataSizeDelta === 0 ? "SUCCESS" : "DIFFERENCE";
       const result: JobResult = {
         jobId,
         status,
         volumeDelta,
         sourceCount,
         targetCount,
+        sourceDataSize,
+        targetDataSize,
+        dataSizeDelta,
         table,
         sourceSchema,
         targetSchema,

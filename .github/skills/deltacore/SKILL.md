@@ -19,7 +19,9 @@ argument-hint: "Describe the DeltaCore feature, failure, or workflow to work on"
 - Use `StatusProvider` for transient information, success, warning, and error messages. Banners close manually or after 3 seconds.
 - Use a bottom banner for complete SQL/ODBC details; do not truncate diagnostic strings.
 - Preserve caller state when a view opens an editor; use the `SmartBackState` pattern.
+- When one page invokes another and the destination has a **Volver** button, it must return to the invoking view, not a fixed route. Pass the origin and required selection/filter state through router navigation state, then restore it on return. Use browser history only as a fallback when there is no explicit caller state.
 - Apply shared table focus/selection styles instead of component-specific invisible selection state.
+- Keep all frontend buttons at the shared standard height. Use internal scrolling for large tables instead of expanding setup views vertically.
 
 ## Schema Comparison
 
@@ -28,6 +30,15 @@ argument-hint: "Describe the DeltaCore feature, failure, or workflow to work on"
 3. Return a `schemaComparison` entry for every field in the union of origin/target fields, including type, length, scale, and status.
 4. Resolve a summary table description from the source dictionary first, then the live source catalog.
 5. Load full field details from `GET /api/catalog/describe` for both DSNs only when the user selects **Ver**. Prefer a source field description and use target only as fallback.
+
+## Volume and Row Comparison
+
+1. Load local dictionaries for the selected origin DSN and let users select tables from that list; do not request table/schema/key manually from the compare form.
+2. Sort selected dictionaries first. Disable execution until at least one dictionary is selected.
+3. Render Schema, Volume, and Row results as consolidated tables with one row per selected table.
+4. For IBM i Volume queries, return both `COUNT(*)` and `QSYS2.SYSTABLESTAT.DATA_SIZE`; display records and sizes with `es-CL` formatting.
+5. Preserve all Row Delta category details within the requested limit. Link nonzero category counts to a detail page; highlight each changed field and identify source versus target values.
+6. Pass a `SmartBackState.compare` snapshot into row-detail links so **Volver** restores DSNs, mode, limit, selected tables, and results.
 
 ## Validation
 

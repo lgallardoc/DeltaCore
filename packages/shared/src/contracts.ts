@@ -20,6 +20,8 @@ export type RowValueMap = Record<string, string>;
 export interface RowChange {
   key: RowValueMap;
   columns: Array<{ column: string; source: string; target: string }>;
+  sourceRow: RowValueMap;
+  targetRow: RowValueMap;
 }
 
 export interface RowDelta {
@@ -33,6 +35,11 @@ export interface RowDelta {
   targetRows: number;
   duplicateKeys: number;
   samples: {
+    onlyInSource: RowValueMap[];
+    onlyInTarget: RowValueMap[];
+    changed: RowChange[];
+  };
+  details: {
     onlyInSource: RowValueMap[];
     onlyInTarget: RowValueMap[];
     changed: RowChange[];
@@ -68,6 +75,9 @@ export interface JobResult {
   volumeDelta?: number;
   sourceCount?: number;
   targetCount?: number;
+  sourceDataSize?: number;
+  targetDataSize?: number;
+  dataSizeDelta?: number;
   table?: string;
   sourceSchema?: string;
   targetSchema?: string;
