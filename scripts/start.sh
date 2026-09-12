@@ -30,13 +30,13 @@ if docker image inspect db2-az7:latest >/dev/null 2>&1; then
       db2-az7:latest >/dev/null
   fi
 else
-  echo "Image db2-az7:latest not found. Skip Db2. Build with: cd infrastructure/db2-az7-generator && npm run build:docker"
+  echo "Image db2-az7:latest not found. Skip Db2. Build with: cd infrastructure/db2-az7-generator && pnpm run build:docker"
 fi
 
 if [[ "${INFRA_ONLY}" -eq 1 ]]; then
-  echo "Infrastructure is up. Apps: npm run dev"
+  echo "Infrastructure is up. Apps: pnpm run dev"
   exit 0
 fi
 
 cd "${ROOT}"
-exec npm run dev
+exec pnpm run dev
