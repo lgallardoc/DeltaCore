@@ -107,5 +107,5 @@ Container-internal Keycloak HTTP remains `8080`; only the **host** port is confi
 
 - Production target: IBM i PASE; this lab stack is Docker + macOS unixODBC.
 - Changing the SPA port without updating Keycloak client redirect URIs will fail OIDC login.
-- `GET /health` on the API is unauthenticated and used by `npm run status`.
-- SQLite file: `apps/backend/data/deltacore.db` (gitignored). Re-seed with `npm run init:db` on a new file.
+- `GET /health` on the API is unauthenticated and used by `pnpm run status`.
+- SQLite file: `apps/backend/data/deltacore.db` (gitignored). Re-seed with `pnpm run init:db` on a new file.

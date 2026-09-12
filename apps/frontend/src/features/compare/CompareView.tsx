@@ -661,6 +661,8 @@ function RowComparisonSummary({
                 targetDsn,
                 sourceName,
                 targetName,
+                sourceSchema: result.sourceSchema,
+                targetSchema: result.targetSchema,
                 from: "/compare",
                 compare: compareSession,
               };

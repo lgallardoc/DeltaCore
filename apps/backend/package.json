@@ -11,7 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@deltacore/shared": "*",
+    "@deltacore/shared": "workspace:*",
     "cors": "^2.8.5",
     "express": "^5.2.1",
     "jose": "^6.1.0",

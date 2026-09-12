@@ -1,0 +1,493 @@
+# ==============================================================================
+# Pipeline unico de Build + Deploy atomico (Zero Downtime)
+#
+# Decisiones de diseno:
+#  - Un solo workflow orquesta CI y CD para Frontend y Backend del monorepo.
+#  - El nombre del proyecto NUNCA se hardcodea: se deriva de
+#    github.event.repository.name, de modo que este archivo sea copiable
+#    tal cual a cualquier repositorio de la organizacion.
+#  - El job `meta` centraliza el calculo de version/tag/artefacto para que los
+#    jobs siguientes no repitan logica de negocio (single source of truth).
+#  - El despliegue es atomico: se sube a releases/<repo>-<sha> y recien al final
+#    se mueve el symlink `current`. Si el rsync falla, `current` sigue apuntando
+#    al release anterior y el servicio no se cae.
+# ==============================================================================
+
+name: Build & Deploy
+
+# ------------------------------------------------------------------------------
+# TRIGGERS
+# Cubren los cuatro contextos del "Pipeline flow for Developers":
+#   1. pull_request           -> valida el codigo antes del merge (artefacto preview_)
+#   2. push feature/ hotfix/  -> integracion continua + deploy a DEV
+#   3. push main              -> Release Candidate + deploy a QA
+#   4. push tag v*            -> Release oficial + deploy a PRODUCCION (con approval)
+# `workflow_dispatch` se agrega para permitir re-ejecuciones manuales controladas.
+# ------------------------------------------------------------------------------
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches:
+      - main
+      - 'feature/**'
+      - 'hotfix/**'
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Entorno destino para el despliegue manual
+        type: choice
+        options: [dev, qa]
+        default: dev
+
+# Permisos minimos necesarios.
+# `id-token: write` es obligatorio para el intercambio OIDC con HashiCorp Vault.
+permissions:
+  contents: read
+  id-token: write
+
+# Evita despliegues concurrentes sobre la misma referencia.
+# En tags/main NO se cancela en progreso para no dejar un release a medio subir.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') && github.ref != 'refs/heads/main' }}
+
+env:
+  NODE_VERSION: '22'
+  PROJECT_NAME: ${{ github.event.repository.name }}
+  DEPLOY_BASE_PATH: /nodeapp/${{ github.event.repository.name }}
+  NPM_REGISTRY_HOST: npm-registry.fif.tech
+
+jobs:
+  # ============================================================================
+  # JOB 1: META
+  # Calcula una sola vez el contexto de ejecucion y lo expone como outputs.
+  # Aisla aqui toda la logica de prefijos (preview_/hotfix_/RC/release) para que
+  # los jobs de build y deploy sean declarativos y faciles de auditar.
+  # ============================================================================
+  meta:
+    name: Resolver contexto y version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.context.outputs.version }}
+      short_sha: ${{ steps.context.outputs.short_sha }}
+      artifact_tag: ${{ steps.context.outputs.artifact_tag }}
+      artifact_name: ${{ steps.context.outputs.artifact_name }}
+      release_channel: ${{ steps.context.outputs.release_channel }}
+      release_dir: ${{ steps.context.outputs.release_dir }}
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v4
+        with:
+          # fetch-depth 0 permite leer tags/historial si luego se requiere changelog.
+          fetch-depth: 0
+
+      - name: Calcular version, canal y tag de artefacto
+        id: context
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # La version base siempre proviene del package.json raiz del monorepo.
+          VERSION="$(node -p "require('./package.json').version")"
+          SHORT_SHA="$(git rev-parse --short HEAD)"
+
+          # Resolucion del canal segun el contexto que disparo el workflow.
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            # Release oficial: el tag de Git manda sobre el package.json.
+            CHANNEL="release"
+            VERSION="${GITHUB_REF_NAME#v}"
+            ARTIFACT_TAG="${VERSION}_${SHORT_SHA}"
+          elif [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            # PR: artefacto desechable, nunca promocionable a produccion.
+            CHANNEL="preview"
+            ARTIFACT_TAG="preview_${VERSION}_${SHORT_SHA}"
+          elif [[ "${GITHUB_REF}" == refs/heads/feature/* ]]; then
+            CHANNEL="preview"
+            ARTIFACT_TAG="preview_${VERSION}_${SHORT_SHA}"
+          elif [[ "${GITHUB_REF}" == refs/heads/hotfix/* ]]; then
+            # Hotfix: canal propio para poder rastrear correctivos urgentes.
+            CHANNEL="hotfix"
+            ARTIFACT_TAG="hotfix_${VERSION}_${SHORT_SHA}"
+          elif [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            # Merge a main: Release Candidate, SIN prefijo (queda promocionable).
+            CHANNEL="rc"
+            ARTIFACT_TAG="${VERSION}_${SHORT_SHA}"
+          else
+            CHANNEL="preview"
+            ARTIFACT_TAG="preview_${VERSION}_${SHORT_SHA}"
+          fi
+
+          {
+            echo "version=${VERSION}"
+            echo "short_sha=${SHORT_SHA}"
+            echo "artifact_tag=${ARTIFACT_TAG}"
+            echo "artifact_name=${PROJECT_NAME}-${ARTIFACT_TAG}"
+            echo "release_channel=${CHANNEL}"
+            echo "release_dir=${DEPLOY_BASE_PATH}/releases/${PROJECT_NAME}-${GITHUB_SHA}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Publicar resumen del contexto
+        shell: bash
+        run: |
+          {
+            echo "### Contexto del pipeline"
+            echo ""
+            echo "| Campo | Valor |"
+            echo "| --- | --- |"
+            echo "| Proyecto | ${PROJECT_NAME} |"
+            echo "| Evento | ${GITHUB_EVENT_NAME} |"
+            echo "| Referencia | ${GITHUB_REF_NAME} |"
+            echo "| Canal | ${{ steps.context.outputs.release_channel }} |"
+            echo "| Tag artefacto | ${{ steps.context.outputs.artifact_tag }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ============================================================================
+  # JOB 2: BUILD
+  # Genera un artefacto inmutable y auto-contenido (dist + node_modules de prod).
+  # El artefacto se construye UNA sola vez y se reutiliza en todos los entornos,
+  # garantizando que lo validado en DEV/QA es exactamente lo que va a PRODUCCION.
+  # ============================================================================
+  build:
+    name: Build & Test (${{ needs.meta.outputs.artifact_tag }})
+    needs: meta
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v4
+
+      # pnpm se instala antes de setup-node para que la cache 'pnpm' pueda
+      # resolver el store path correctamente.
+      - name: Instalar pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Configurar Node.js ${{ env.NODE_VERSION }} + cache pnpm
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          registry-url: https://${{ env.NPM_REGISTRY_HOST }}/
+
+      # El token del registro privado se inyecta como variable de entorno y
+      # tambien en .npmrc, cubriendo tanto npm como pnpm y dependencias con
+      # scope propio de la organizacion.
+      - name: Autenticar contra el registro NPM privado
+        shell: bash
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${NPM_TOKEN}" ]]; then
+            echo "::error::Falta el secret NPM_REGISTRY_TOKEN para ${NPM_REGISTRY_HOST}."
+            exit 1
+          fi
+          {
+            echo "registry=https://${NPM_REGISTRY_HOST}/"
+            echo "//${NPM_REGISTRY_HOST}/:_authToken=\${NPM_TOKEN}"
+            echo "always-auth=true"
+          } > .npmrc
+
+      - name: Instalar dependencias (deterministico)
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_REGISTRY_TOKEN }}
+        run: pnpm install --frozen-lockfile
+
+      - name: Ejecutar pruebas unitarias e integracion
+        run: pnpm run test
+
+      - name: Construir Frontend y Backend
+        run: pnpm run build
+
+      # Se descartan devDependencies DESPUES del build: el artefacto final viaja
+      # liviano y sin herramientas de compilacion al servidor destino.
+      - name: Podar dependencias a solo produccion
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_REGISTRY_TOKEN }}
+        run: pnpm install --frozen-lockfile --prod
+
+      # El .npmrc contiene el token expandido en runtime; nunca debe viajar
+      # dentro del artefacto ni al servidor remoto.
+      - name: Eliminar credenciales del workspace
+        if: always()
+        run: rm -f .npmrc
+
+      - name: Publicar artefacto ${{ needs.meta.outputs.artifact_name }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ needs.meta.outputs.artifact_name }}
+          # Se incluyen dist/ y node_modules/ de apps y packages del monorepo.
+          path: |
+            **/dist
+            **/node_modules
+            package.json
+            scripts/
+            !**/node_modules/.cache
+          retention-days: ${{ needs.meta.outputs.release_channel == 'preview' && 7 || 30 }}
+          if-no-files-found: error
+          include-hidden-files: false
+
+  # ============================================================================
+  # JOB 3: DEPLOY DEV
+  # Se ejecuta automaticamente en ramas de trabajo (feature/hotfix).
+  # No corre en pull_request para evitar desplegar codigo aun no integrado.
+  # ============================================================================
+  deploy_dev:
+    name: Deploy DEV
+    needs: [meta, build]
+    if: >-
+      github.event_name == 'push' &&
+      (startsWith(github.ref, 'refs/heads/feature/') || startsWith(github.ref, 'refs/heads/hotfix/')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.environment == 'dev')
+    runs-on: ubuntu-latest
+    environment:
+      name: dev
+    strategy:
+      matrix:
+        host: [fdesa01.falabella.cl]
+    steps:
+      - name: Descargar artefacto de build
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.meta.outputs.artifact_name }}
+          path: artifact
+
+      - name: Obtener credenciales SSH desde Vault (OIDC)
+        id: vault
+        if: vars.VAULT_ENABLED == 'true'
+        uses: hashicorp/vault-action@v3
+        with:
+          url: ${{ vars.VAULT_ADDR }}
+          method: jwt
+          role: ${{ vars.VAULT_ROLE }}
+          secrets: |
+            secret/data/${{ env.PROJECT_NAME }}/dev ssh_private_key | SSH_PRIVATE_KEY ;
+            secret/data/${{ env.PROJECT_NAME }}/dev ssh_user | SSH_USER
+
+      - name: Configurar agente SSH
+        shell: bash
+        env:
+          # Vault tiene prioridad; si no esta habilitado se usa el secret del repo.
+          SSH_PRIVATE_KEY: ${{ env.SSH_PRIVATE_KEY || secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          DEPLOY_HOST: ${{ matrix.host }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${SSH_PRIVATE_KEY}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # Se fija el host key para impedir ataques MITM en el transporte.
+          ssh-keyscan -H "${DEPLOY_HOST}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Desplegar release atomico en ${{ matrix.host }}
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ matrix.host }}
+          DEPLOY_USER: ${{ env.SSH_USER || secrets.DEPLOY_SSH_USER }}
+          RELEASE_DIR: ${{ needs.meta.outputs.release_dir }}
+          ARTIFACT_TAG: ${{ needs.meta.outputs.artifact_tag }}
+        run: |
+          set -euo pipefail
+          SSH_OPTS="-i ~/.ssh/deploy_key -o BatchMode=yes"
+
+          # 1. Crear el directorio del release ANTES de transferir.
+          ssh ${SSH_OPTS} "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "mkdir -p '${RELEASE_DIR}' '${DEPLOY_BASE_PATH}/releases'"
+
+          # 2. Transferencia incremental del artefacto ya construido.
+          rsync -az --delete \
+            -e "ssh ${SSH_OPTS}" \
+            artifact/ "${DEPLOY_USER}@${DEPLOY_HOST}:${RELEASE_DIR}/"
+
+          # 3. Switch atomico + post-deploy. `ln -sfn` reemplaza el symlink
+          #    en una sola operacion, por lo que no existe ventana de downtime.
+          ssh ${SSH_OPTS} "${DEPLOY_USER}@${DEPLOY_HOST}" bash -se <<EOF
+          set -euo pipefail
+          echo "${ARTIFACT_TAG}" > "${RELEASE_DIR}/RELEASE_TAG"
+          ln -sfn "${RELEASE_DIR}" "${DEPLOY_BASE_PATH}/current"
+          cd "${DEPLOY_BASE_PATH}/current"
+          [ -x scripts/fix-install.sh ] && bash scripts/fix-install.sh
+          [ -x scripts/cleanup-releases.sh ] && bash scripts/cleanup-releases.sh
+          EOF
+
+      - name: Revocar clave SSH del runner
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
+
+  # ============================================================================
+  # JOB 4: DEPLOY QA
+  # Valida el Release Candidate inmediatamente despues del merge a main.
+  # La matriz despliega ambos nodos de certificacion en paralelo; `fail-fast:false`
+  # evita que la caida de un nodo oculte el resultado del otro.
+  # ============================================================================
+  deploy_qa:
+    name: Deploy QA (${{ matrix.host }})
+    needs: [meta, build]
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && inputs.environment == 'qa')
+    runs-on: ubuntu-latest
+    environment:
+      name: qa
+    strategy:
+      fail-fast: false
+      matrix:
+        host: [fcert01.falabella.cl, fcert02.falabella.cl]
+    steps:
+      - name: Descargar artefacto de build
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.meta.outputs.artifact_name }}
+          path: artifact
+
+      - name: Obtener credenciales SSH desde Vault (OIDC)
+        if: vars.VAULT_ENABLED == 'true'
+        uses: hashicorp/vault-action@v3
+        with:
+          url: ${{ vars.VAULT_ADDR }}
+          method: jwt
+          role: ${{ vars.VAULT_ROLE }}
+          secrets: |
+            secret/data/${{ env.PROJECT_NAME }}/qa ssh_private_key | SSH_PRIVATE_KEY ;
+            secret/data/${{ env.PROJECT_NAME }}/qa ssh_user | SSH_USER
+
+      - name: Configurar agente SSH
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ env.SSH_PRIVATE_KEY || secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          DEPLOY_HOST: ${{ matrix.host }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${SSH_PRIVATE_KEY}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${DEPLOY_HOST}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Desplegar release atomico en ${{ matrix.host }}
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ matrix.host }}
+          DEPLOY_USER: ${{ env.SSH_USER || secrets.DEPLOY_SSH_USER }}
+          RELEASE_DIR: ${{ needs.meta.outputs.release_dir }}
+          ARTIFACT_TAG: ${{ needs.meta.outputs.artifact_tag }}
+        run: |
+          set -euo pipefail
+          SSH_OPTS="-i ~/.ssh/deploy_key -o BatchMode=yes"
+
+          ssh ${SSH_OPTS} "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "mkdir -p '${RELEASE_DIR}' '${DEPLOY_BASE_PATH}/releases'"
+
+          rsync -az --delete \
+            -e "ssh ${SSH_OPTS}" \
+            artifact/ "${DEPLOY_USER}@${DEPLOY_HOST}:${RELEASE_DIR}/"
+
+          ssh ${SSH_OPTS} "${DEPLOY_USER}@${DEPLOY_HOST}" bash -se <<EOF
+          set -euo pipefail
+          echo "${ARTIFACT_TAG}" > "${RELEASE_DIR}/RELEASE_TAG"
+          ln -sfn "${RELEASE_DIR}" "${DEPLOY_BASE_PATH}/current"
+          cd "${DEPLOY_BASE_PATH}/current"
+          [ -x scripts/fix-install.sh ] && bash scripts/fix-install.sh
+          [ -x scripts/cleanup-releases.sh ] && bash scripts/cleanup-releases.sh
+          EOF
+
+      - name: Revocar clave SSH del runner
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
+
+  # ============================================================================
+  # JOB 5: DEPLOY PRODUCCION
+  # CRITICO: no se dispara por commits ni por merges a main.
+  # Solo corre cuando se publica un Git Tag oficial (vX.Y.Z), y ademas queda
+  # detenido hasta que un aprobador autorizado libere el GitHub Environment
+  # `production` (required reviewers configurados en Settings > Environments).
+  # ============================================================================
+  deploy_production:
+    name: Deploy PRODUCCION
+    needs: [meta, build]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://${{ matrix.host }}
+    strategy:
+      fail-fast: false
+      matrix:
+        host: ${{ fromJSON(vars.PRODUCTION_HOSTS || '["fprod01.falabella.cl"]') }}
+    steps:
+      - name: Descargar artefacto promovido
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.meta.outputs.artifact_name }}
+          path: artifact
+
+      - name: Obtener credenciales SSH desde Vault (OIDC)
+        if: vars.VAULT_ENABLED == 'true'
+        uses: hashicorp/vault-action@v3
+        with:
+          url: ${{ vars.VAULT_ADDR }}
+          method: jwt
+          role: ${{ vars.VAULT_ROLE }}
+          secrets: |
+            secret/data/${{ env.PROJECT_NAME }}/production ssh_private_key | SSH_PRIVATE_KEY ;
+            secret/data/${{ env.PROJECT_NAME }}/production ssh_user | SSH_USER
+
+      - name: Configurar agente SSH
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ env.SSH_PRIVATE_KEY || secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          DEPLOY_HOST: ${{ matrix.host }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${SSH_PRIVATE_KEY}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${DEPLOY_HOST}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Desplegar release oficial en ${{ matrix.host }}
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ matrix.host }}
+          DEPLOY_USER: ${{ env.SSH_USER || secrets.DEPLOY_SSH_USER }}
+          RELEASE_DIR: ${{ needs.meta.outputs.release_dir }}
+          ARTIFACT_TAG: ${{ needs.meta.outputs.artifact_tag }}
+        run: |
+          set -euo pipefail
+          SSH_OPTS="-i ~/.ssh/deploy_key -o BatchMode=yes"
+
+          ssh ${SSH_OPTS} "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "mkdir -p '${RELEASE_DIR}' '${DEPLOY_BASE_PATH}/releases'"
+
+          rsync -az --delete \
+            -e "ssh ${SSH_OPTS}" \
+            artifact/ "${DEPLOY_USER}@${DEPLOY_HOST}:${RELEASE_DIR}/"
+
+          # Se guarda el symlink previo para permitir un rollback inmediato.
+          ssh ${SSH_OPTS} "${DEPLOY_USER}@${DEPLOY_HOST}" bash -se <<EOF
+          set -euo pipefail
+          if [ -L "${DEPLOY_BASE_PATH}/current" ]; then
+            readlink -f "${DEPLOY_BASE_PATH}/current" > "${DEPLOY_BASE_PATH}/previous_release"
+          fi
+          echo "${ARTIFACT_TAG}" > "${RELEASE_DIR}/RELEASE_TAG"
+          ln -sfn "${RELEASE_DIR}" "${DEPLOY_BASE_PATH}/current"
+          cd "${DEPLOY_BASE_PATH}/current"
+          [ -x scripts/fix-install.sh ] && bash scripts/fix-install.sh
+          [ -x scripts/cleanup-releases.sh ] && bash scripts/cleanup-releases.sh
+          EOF
+
+      - name: Revocar clave SSH del runner
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
+
+      - name: Registrar release en el resumen del job
+        shell: bash
+        run: |
+          {
+            echo "### Release oficial desplegado"
+            echo ""
+            echo "- Tag Git: ${GITHUB_REF_NAME}"
+            echo "- Artefacto: ${{ needs.meta.outputs.artifact_tag }}"
+            echo "- Host: ${{ matrix.host }}"
+            echo "- Release: ${{ needs.meta.outputs.release_dir }}"
+          } >> "$GITHUB_STEP_SUMMARY"

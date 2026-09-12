@@ -1,8 +1,9 @@
-import { ArrowLeft, CircleAlert } from "lucide-react";
+import { ArrowLeft, CircleAlert, Clipboard, FileCode2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { RowChange, RowDelta, RowValueMap } from "@deltacore/shared";
 import { apiClient } from "../../auth/api.client";
+import { useStatusNotification } from "../../components/StatusBanner";
 import type { SmartBackState } from "../../navigation/smartBack";
 
 type RowKind = "changed" | "onlyInSource" | "onlyInTarget";
@@ -16,6 +17,8 @@ type RowDetailState = SmartBackState & {
   targetDsn?: string;
   sourceName?: string;
   targetName?: string;
+  sourceSchema?: string;
+  targetSchema?: string;
 };
 
 const TITLES: Record<RowKind, string> = {
@@ -26,11 +29,16 @@ const TITLES: Record<RowKind, string> = {
 
 export function RowDetailView() {
   const navigate = useNavigate();
+  const { notify } = useStatusNotification();
   const state = useLocation().state as RowDetailState | null;
   const [labels, setLabels] = useState<Record<string, string>>(state?.labels ?? {});
   const [tableDescription, setTableDescription] = useState(state?.tableDescription ?? "");
   const [sourceName, setSourceName] = useState(state?.sourceName ?? "");
   const [targetName, setTargetName] = useState(state?.targetName ?? "");
+  const [showScript, setShowScript] = useState(false);
+  const [targetSchema, setTargetSchema] = useState(state?.targetSchema ?? "");
+  const [scriptBusy, setScriptBusy] = useState(false);
+  const [scriptError, setScriptError] = useState("");
 
   useEffect(() => {
     if (!state?.sourceDsn || !state.table) {
@@ -111,6 +119,7 @@ export function RowDetailView() {
           targetDsn={detailState.targetDsn}
           sourceName={sourceName}
           targetName={targetName}
+          onGenerateScript={() => void openScript()}
         />
       ) : (
         <SingleSideRowsTable
@@ -119,8 +128,50 @@ export function RowDetailView() {
           labels={labelMap}
         />
       )}
+      {showScript ? (
+        <SqlScriptModal
+          table={detailState.table ?? ""}
+          targetSchema={targetSchema}
+          rows={rows as RowChange[]}
+          keyColumns={detailState.rowDelta.keyColumns}
+          busy={scriptBusy}
+          error={scriptError}
+          onClose={() => setShowScript(false)}
+        />
+      ) : null}
     </section>
   );
+
+  async function openScript() {
+    setShowScript(true);
+    setScriptError("");
+    if (targetSchema) {
+      return;
+    }
+    if (!detailState.targetDsn || !detailState.table) {
+      setScriptError("No se pudo determinar el DSN o tabla de destino.");
+      return;
+    }
+    setScriptBusy(true);
+    try {
+      const response = await apiClient.get<{ schema?: string }>("/catalog/describe", {
+        params: { dsn: detailState.targetDsn, table: detailState.table },
+      });
+      const resolvedSchema = response.data.schema?.trim() ?? "";
+      if (!resolvedSchema) {
+        throw new Error("El catálogo de destino no devolvió el esquema de la tabla.");
+      }
+      setTargetSchema(resolvedSchema);
+    } catch (error) {
+      const message =
+        (error as { response?: { data?: { error?: string } } }).response?.data?.error ??
+        (error instanceof Error ? error.message : "No se pudo resolver el esquema destino.");
+      setScriptError(message);
+      notify(message, "error");
+    } finally {
+      setScriptBusy(false);
+    }
+  }
 }
 
 function ChangedRowsTable({
@@ -131,6 +182,7 @@ function ChangedRowsTable({
   targetDsn,
   sourceName,
   targetName,
+  onGenerateScript,
 }: {
   rows: RowChange[];
   delta: RowDelta;
@@ -139,13 +191,19 @@ function ChangedRowsTable({
   targetDsn?: string;
   sourceName?: string;
   targetName?: string;
+  onGenerateScript: () => void;
 }) {
   return (
     <>
-      <div className="flex flex-wrap gap-4 text-xs">
-        <span className="dc-origin font-semibold">Origen ({sourceDsn || "no disponible"}{sourceName ? ` · ${sourceName}` : ""}): primera línea</span>
-        <span className="dc-target font-semibold">Destino ({targetDsn || "no disponible"}{targetName ? ` · ${targetName}` : ""}): segunda línea</span>
-        <span className="flex items-center gap-1 font-semibold text-amber-800"><CircleAlert size={14} /> Campo con diferencia</span>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs">
+          <span className="dc-origin font-semibold">Origen ({sourceDsn || "no disponible"}{sourceName ? ` · ${sourceName}` : ""}): primera línea</span>
+          <span className="dc-target font-semibold">Destino ({targetDsn || "no disponible"}{targetName ? ` · ${targetName}` : ""}): segunda línea</span>
+          <span className="flex items-center gap-1 font-semibold text-amber-800"><CircleAlert size={14} /> Campo con diferencia</span>
+        </div>
+        <button type="button" className="btn btn-sm" onClick={onGenerateScript} disabled={rows.length === 0} title="Generar UPDATE y rollback para el destino">
+          <FileCode2 size={14} /> Generar SQL
+        </button>
       </div>
       <div className="max-h-[32rem] overflow-auto rounded-lg border">
         <table className="table table-xs table-pin-cols table-pin-rows">
@@ -181,6 +239,98 @@ function ChangedRowsTable({
       </div>
     </>
   );
+}
+
+function SqlScriptModal({
+  table,
+  targetSchema,
+  rows,
+  keyColumns,
+  busy,
+  error,
+  onClose,
+}: {
+  table: string;
+  targetSchema: string;
+  rows: RowChange[];
+  keyColumns: string[];
+  busy: boolean;
+  error: string;
+  onClose: () => void;
+}) {
+  const applyScript = targetSchema
+    ? buildUpdateScript(table, targetSchema, rows, keyColumns, "sourceRow")
+    : "";
+  const rollbackScript = targetSchema
+    ? buildUpdateScript(table, targetSchema, rows, keyColumns, "targetRow")
+    : "";
+
+  async function copyScript(script: string) {
+    await navigator.clipboard.writeText(script);
+  }
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-label="Scripts SQL de homologación">
+      <div className="fin-panel flex max-h-[85vh] w-full max-w-6xl flex-col rounded-lg border p-4">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-base font-bold">Scripts SQL: {targetSchema}.{table}</h3>
+            <p className="fin-muted text-xs">Actualización del destino desde el origen y rollback a los valores originales.</p>
+          </div>
+          <button type="button" className="btn btn-sm" onClick={onClose} title="Cerrar scripts"><X size={16} /></button>
+        </div>
+        {busy ? <p className="py-8 text-center text-sm">Resolviendo esquema destino...</p> : null}
+        {error ? <p className="py-8 text-center text-sm text-red-700">{error}</p> : null}
+        {targetSchema && !busy && !error ? (
+          <div className="grid min-h-0 gap-3 lg:grid-cols-2">
+            <ScriptPanel title="Homologar destino" script={applyScript} onCopy={() => void copyScript(applyScript)} />
+            <ScriptPanel title="Rollback destino" script={rollbackScript} onCopy={() => void copyScript(rollbackScript)} />
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function ScriptPanel({ title, script, onCopy }: { title: string; script: string; onCopy: () => void }) {
+  return (
+    <div className="flex min-h-0 flex-col gap-2">
+      <div className="flex items-center justify-between gap-2"><h4 className="text-sm font-semibold">{title}</h4><button type="button" className="btn btn-xs" onClick={onCopy}><Clipboard size={13} /> Copiar</button></div>
+      <textarea className="textarea textarea-bordered font-code min-h-64 w-full resize-none text-xs" value={script} readOnly />
+    </div>
+  );
+}
+
+function buildUpdateScript(
+  table: string,
+  targetSchema: string,
+  rows: RowChange[],
+  keyColumns: string[],
+  values: "sourceRow" | "targetRow",
+): string {
+  const target = `${sqlIdentifier(targetSchema)}.${sqlIdentifier(table)}`;
+  const statements = rows.map((row) => {
+    const assignments = row.columns.map((column) =>
+      `  ${sqlIdentifier(column.column)} = ${sqlLiteral(row[values][column.column] ?? "")}`,
+    ).join(",\n");
+    const where = keyColumns.map((column) =>
+      `  ${sqlIdentifier(column)} = ${sqlLiteral(row.key[column] ?? "")}`,
+    ).join("\n  AND ");
+    return `UPDATE ${target}\nSET\n${assignments}\nWHERE\n${where};`;
+  });
+  return [`-- ${values === "sourceRow" ? "Homologar destino con origen" : "Rollback a valores originales de destino"}`, ...statements, "COMMIT;"].join("\n\n");
+}
+
+function sqlIdentifier(value: string): string {
+  const identifier = value.trim().toUpperCase();
+  if (!/^[A-Z0-9_@$#]+$/.test(identifier)) {
+    throw new Error(`Identificador SQL no válido: ${value}`);
+  }
+  return identifier;
+}
+
+function sqlLiteral(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
 }
 
 function SingleSideRowsTable({

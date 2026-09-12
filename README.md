@@ -34,8 +34,8 @@ A **source** is an ODBC DSN plus metadata in SQLite. You pick **origen** and **d
 
 **Add a source**
 
-1. Register the DSN in unixODBC (`odbc.ini` / IBM CLI). `npm start` only writes the DSN named `DB2_ODBC_DSN`; extra DSNs (for example `AZ7DBPRDCL`) must be added to `odbc.ini` by hand or they will not connect.
-2. Insert (or update) a row in `biz_data_sources` (`odbc_dsn` must match the unixODBC name). After changing the seed file, run `npm run init:db` on a **new** database, or `INSERT`/`UPDATE` in `apps/backend/data/deltacore.db` (`INSERT OR IGNORE` does not update existing rows).
+1. Register the DSN in unixODBC (`odbc.ini` / IBM CLI). `pnpm start` only writes the DSN named `DB2_ODBC_DSN`; extra DSNs (for example `AZ7DBPRDCL`) must be added to `odbc.ini` by hand or they will not connect.
+2. Insert (or update) a row in `biz_data_sources` (`odbc_dsn` must match the unixODBC name). After changing the seed file, run `pnpm run init:db` on a **new** database, or `INSERT`/`UPDATE` in `apps/backend/data/deltacore.db` (`INSERT OR IGNORE` does not update existing rows).
 3. In Comparar, choose the DSN in **DSN origen** and **DSN destino**. In CLI, pass `--source` and `--target`.
 
 Schemas for volume/row compare are **not** the DSN: they are `--source-schema` / `--target-schema` (UI: esquema origen / destino).
@@ -63,27 +63,29 @@ Changing `VITE_DEV_PORT` also requires matching redirect URIs in `infrastructure
 From the repo root (`nodeapp/DeltaCore`). Docker Desktop must be running for Keycloak and Db2.
 
 ```bash
-npm install
+pnpm install
 cp .env.example .env   # first time only; start.sh also copies if missing
-npm run init:db
-npm start              # Keycloak + Db2 (if image exists) + frontend + backend
+pnpm run init:db
+pnpm start              # Keycloak + Db2 (if image exists) + frontend + backend
 ```
+
+Package manager: **pnpm** (workspace defined in `pnpm-workspace.yaml`). `pnpm install` may prompt to approve native build scripts (`odbc`, `esbuild`) on first run; they are pre-approved via `allowBuilds` in `pnpm-workspace.yaml`.
 
 | Command | Effect |
 | --- | --- |
-| `npm start` | Apply ODBC from `.env`, start Keycloak, start/create `db2-az7`, then `npm run dev` |
-| `npm run start:infra` | Same infrastructure only (no Vite/Express) |
-| `npm run dev` | Concurrent backend (`PORT`) and frontend (`VITE_DEV_PORT`) |
-| `npm run status` | Print configured ports and HTTP/Docker health |
-| `npm stop` | Stop Vite, Express, Keycloak and `db2-az7` |
-| `npm run stop:apps` | Stop only frontend (`VITE_DEV_PORT`) and backend (`PORT`) |
-| `npm run stop:sso` | Stop Keycloak, leave Db2 and Node apps running |
-| `npm test` | Workspace tests |
-| `npm run init:db` | SQLite schema/seed |
-| `npm run cli -- list-schemas` | Schemas assigned to a DSN (`*LIBL*`) and catalog presence |
-| `npm run cli -- list-tables` | Tables in those schemas (`schema.table`) |
+| `pnpm start` | Apply ODBC from `.env`, start Keycloak, start/create `db2-az7`, then `pnpm run dev` |
+| `pnpm run start:infra` | Same infrastructure only (no Vite/Express) |
+| `pnpm run dev` | Concurrent backend (`PORT`) and frontend (`VITE_DEV_PORT`) |
+| `pnpm run status` | Print configured ports and HTTP/Docker health |
+| `pnpm stop` | Stop Vite, Express, Keycloak and `db2-az7` |
+| `pnpm run stop:apps` | Stop only frontend (`VITE_DEV_PORT`) and backend (`PORT`) |
+| `pnpm run stop:sso` | Stop Keycloak, leave Db2 and Node apps running |
+| `pnpm test` | Workspace tests (`pnpm -r --if-present run test`) |
+| `pnpm run init:db` | SQLite schema/seed |
+| `pnpm run cli -- list-schemas` | Schemas assigned to a DSN (`*LIBL*`) and catalog presence |
+| `pnpm run cli -- list-tables` | Tables in those schemas (`schema.table`) |
 
-Stop Node + Docker with `npm stop`. Only the UI/API: `npm run stop:apps`. Then start again with `npm run dev` (apps) or `npm start` (infra + apps).
+Stop Node + Docker with `pnpm stop`. Only the UI/API: `pnpm run stop:apps`. Then start again with `pnpm run dev` (apps) or `pnpm start` (infra + apps).
 
 ### Lab Db2 (first time)
 
@@ -99,12 +101,12 @@ On Apple Silicon, Db2 must use `--platform linux/amd64` and base image `icr.io/d
 
 ### unixODBC
 
-DSN files are **not** tied to where unixODBC is installed. `source infrastructure/odbc/env.sh` sets `ODBCINI` / `ODBCSYSINI` to `infrastructure/odbc/`. The Driver Manager (`libodbc`) **is** tied to the prefix used when you ran `npm install odbc`.
+DSN files are **not** tied to where unixODBC is installed. `source infrastructure/odbc/env.sh` sets `ODBCINI` / `ODBCSYSINI` to `infrastructure/odbc/`. The Driver Manager (`libodbc`) **is** tied to the prefix used when you ran `pnpm install` (which builds the native `odbc` addon).
 
 If unixODBC lives somewhere else (otro Homebrew, `/usr/local`, PASE):
 
 1. Set `UNIXODBC_LIB_DIR` in `.env` to the directory that contains `libodbc.dylib` or `libodbc.so`.
-2. Rebuild the native addon on **that** machine: `npm rebuild odbc -w @deltacore/backend`.
+2. Rebuild the native addon on **that** machine: `pnpm --filter @deltacore/backend rebuild odbc`.
 3. Optionally set `IBM_DB_HOME` and `IBM_DB_LIB` if the IBM CLI is not under `infrastructure/odbc/clidriver`.
 
 ```bash
@@ -112,7 +114,7 @@ source infrastructure/odbc/env.sh
 isql -v AZ7DB   # DSN name is DB2_ODBC_DSN
 ```
 
-`npm start` regenerates `odbc.ini` / `db2dsdriver.cfg` from `.env` for **`DB2_ODBC_DSN` only**. Lab catalog SQL uses Db2 LUW `SYSCAT` when `DB2_CATALOG=luw` (`sql-dialects/db2`). IBM i uses `DB2_CATALOG=ibmi` and `sql-dialects/db2-ibmi` (`QSYS2`). Do not put IBM i SQL in the `db2/` folder (it breaks the AZ7 LUW lab). Default schema-compare table in the Jobs UI: `VITE_SCHEMA_COMPARE_TABLES` (e.g. `ACCCR7`).
+`pnpm start` regenerates `odbc.ini` / `db2dsdriver.cfg` from `.env` for **`DB2_ODBC_DSN` only**. Lab catalog SQL uses Db2 LUW `SYSCAT` when `DB2_CATALOG=luw` (`sql-dialects/db2`). IBM i uses `DB2_CATALOG=ibmi` and `sql-dialects/db2-ibmi` (`QSYS2`). Do not put IBM i SQL in the `db2/` folder (it breaks the AZ7 LUW lab). Default schema-compare table in the Jobs UI: `VITE_SCHEMA_COMPARE_TABLES` (e.g. `ACCCR7`).
 
 ### UI
 
@@ -152,16 +154,16 @@ HTTP (JWT): `POST /api/jobs/:id/{schema,volume,row}-compare`, `GET /api/catalog/
 Same `ComparisonEngine` as the HTTP adapter. Does not use Keycloak.
 
 ```bash
-npm run cli -- help
-npm run cli -- schema-compare --table ACCCR7
-npm run cli -- schema-compare --source AZ7DB --target AZ7DB --table ACCCR7 --json
-npm run cli -- volume-compare --source AZ7DB --target AZ7DBPRDCL --table ACCTX --source-schema AZBASWQA --target-schema AXSW1PDCL --json
-npm run cli -- row-compare --source AZ7DB --target AZ7DBPRDCL --table ACCTX --source-schema AZBASWQA --target-schema AXSW1PDCL --key ID,CODE --json
-npm run cli -- list-schemas --dsn AZ7DB
-npm run cli -- find-table --table AZLHT
-npm run cli -- find-table --table AZLHT --all-schemas
-npm run cli -- describe-table --table ACCCR7
-npm run cli -- describe-table --table ACCCR7 --schema AZBASWQA
+pnpm run cli -- help
+pnpm run cli -- schema-compare --table ACCCR7
+pnpm run cli -- schema-compare --source AZ7DB --target AZ7DB --table ACCCR7 --json
+pnpm run cli -- volume-compare --source AZ7DB --target AZ7DBPRDCL --table ACCTX --source-schema AZBASWQA --target-schema AXSW1PDCL --json
+pnpm run cli -- row-compare --source AZ7DB --target AZ7DBPRDCL --table ACCTX --source-schema AZBASWQA --target-schema AXSW1PDCL --key ID,CODE --json
+pnpm run cli -- list-schemas --dsn AZ7DB
+pnpm run cli -- find-table --table AZLHT
+pnpm run cli -- find-table --table AZLHT --all-schemas
+pnpm run cli -- describe-table --table ACCCR7
+pnpm run cli -- describe-table --table ACCCR7 --schema AZBASWQA
 ```
 
 `--key` is comma-separated (and/or repeatable). `--limit` default 10000 (max 50000). CHAR trailing spaces are trimmed on row compare.
