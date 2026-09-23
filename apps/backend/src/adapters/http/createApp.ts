@@ -76,7 +76,7 @@ export function createApp(deps: {
   });
 
   app.get("/api/admin/rbac", async (req, res) => {
-    await withAdmin(req, res, deps.verifyToken, deps.rbac, async (identity) => {
+    await withRbacRead(req, res, deps.verifyToken, deps.rbac, async (identity) => {
       deps.rbac.ensureUser(identity);
       res.json({
         users: deps.rbac.listUsers(),
@@ -532,6 +532,29 @@ async function withAdmin(
     const userId = rbac.ensureUser(identity);
     if (!rbac.isAdmin(userId)) {
       res.status(403).json({ error: "admin profile required" });
+      return;
+    }
+    await run(identity);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(message === "missing bearer token" ? 401 : 500).json({ error: message });
+  }
+}
+
+async function withRbacRead(
+  req: Request,
+  res: Response,
+  verifyToken: (token: string) => Promise<AccessIdentity>,
+  rbac: SqliteRbacStore,
+  run: (identity: AccessIdentity) => Promise<void>,
+): Promise<void> {
+  try {
+    const identity = await identityFromRequest(req, verifyToken);
+    const userId = rbac.ensureUser(identity);
+    const canReadUsers = rbac.permissionsFor(userId, "USERS").canRead;
+    const canReadProfiles = rbac.permissionsFor(userId, "PROFILES").canRead;
+    if (!canReadUsers && !canReadProfiles) {
+      res.status(403).json({ error: "read permission required" });
       return;
     }
     await run(identity);

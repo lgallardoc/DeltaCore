@@ -2,7 +2,6 @@ import {
   createContext,
   useContext,
   useEffect,
-  useMemo,
   useState,
   type ReactNode,
 } from "react";
@@ -63,22 +62,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const value = useMemo<IAuthContext>(
-    () => ({
-      isInitialized,
-      isAuthenticated: session.isAuthenticated,
-      token: session.token,
-      userId: session.userId,
-      displayName: session.displayName,
-      login: async () => {
-        await keycloak.login();
-      },
-      logout: async () => {
-        await keycloak.logout({ redirectUri: window.location.origin });
-      },
-    }),
-    [isInitialized, session],
-  );
+  const value: IAuthContext = {
+    isInitialized,
+    isAuthenticated: session.isAuthenticated,
+    token: session.token,
+    userId: session.userId,
+    displayName: session.displayName,
+    login: async () => {
+      await keycloak.login();
+    },
+    logout: async () => {
+      keycloak.clearToken();
+      setSession(tokenFromKeycloak());
+      const prefix = import.meta.env.VITE_HTTP_PREFIX?.replace(/\/$/, "") ?? "";
+      window.history.replaceState({}, document.title, `${prefix}/logged-out`);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    },
+  };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

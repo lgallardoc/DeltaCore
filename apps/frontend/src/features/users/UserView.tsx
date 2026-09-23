@@ -75,7 +75,7 @@ export function UserView() {
       const assigned = user.roles.includes(roleName);
       return {
         ...user,
-        roles: assigned ? user.roles.filter((name) => name !== roleName) : [...user.roles, roleName],
+        roles: assigned ? [] : [roleName],
       };
     }));
   }
@@ -115,14 +115,19 @@ export function UserView() {
               <button id="btnSave_users" className="btn fin-btn-primary btn-sm mt-4" disabled={busy || !canEdit || !canSave} onClick={() => void save()}><Save size={14} /> Guardar usuario</button>
               <div className="mt-5 border-t pt-4">
                 <h4 className="font-semibold">Perfiles asignados</h4>
-                <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  {roles.map((role) => (
-                    <label key={role.id} className="flex items-center gap-2 text-sm">
-                      <input type="checkbox" className="checkbox checkbox-sm" disabled={!canEdit} checked={selectedUser.roles.includes(role.name)} onChange={() => toggleRole(role.name)} />
-                      {role.name}
-                    </label>
-                  ))}
-                </div>
+                <label className="fin-field mt-3 max-w-xl">
+                  <span>Perfil asignado</span>
+                  <select
+                    id="btnEdit_users_role"
+                    className="select select-bordered select-sm"
+                    disabled={!canEdit}
+                    value={selectedUser.roles[0] ?? ""}
+                    onChange={(event) => toggleRole(event.target.value)}
+                  >
+                    <option value="">Seleccione un perfil</option>
+                    {roles.map((role) => <option key={role.id} value={role.name}>{role.name}</option>)}
+                  </select>
+                </label>
                 <button id="btnSave_users_roles" className="btn fin-btn-primary btn-sm mt-4" disabled={busy || !canEdit || !canSave} onClick={() => void saveRoles()}><Save size={14} /> Guardar perfiles</button>
               </div>
             </>

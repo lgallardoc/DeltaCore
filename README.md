@@ -286,6 +286,8 @@ Keycloak lab: `http://localhost:5173` (user `developer` / `dev123`).
 | `/dictionary` | Manage saved dictionaries by DSN: load local/catalog entries, edit fields/keys, and remove one table or all dictionaries for a DSN. |
 | `/catalog` | List schemas and tables for a DSN |
 | `/jobs` | Comparison job list / detail |
+| `/profiles` | Profile CRUD and permissions by module/action |
+| `/users` | Local user data and one-profile assignment |
 
 The comparison selector lists local dictionaries from the origin DSN with their table descriptions, column counts, and saved keys. Selected tables are placed first in the list and the execution button remains disabled until at least one table is selected. Row compare uses the saved key for each selected table; if no key is saved, the engine uses catalog PK, then all columns. Result headers use dictionary descriptions when present.
 
@@ -307,7 +309,7 @@ Every detail page with **Volver** returns to `/compare` with the original mode, 
 
 All temporary success, warning, and error notices use the global bottom banner. It has a close button and closes automatically after three seconds. ODBC and SQL errors are displayed in full, including available driver diagnostics.
 
-HTTP (JWT): `POST /api/jobs/:id/{schema,volume,row}-compare`, `GET /api/catalog/*`, `GET /api/data-sources`, `GET`/`PUT`/`DELETE /api/dictionary`.
+HTTP (JWT): `POST /api/jobs/:id/{schema,volume,row}-compare`, `GET /api/catalog/*`, `GET /api/data-sources`, `GET`/`PUT`/`DELETE /api/dictionary`, and protected RBAC endpoints under `/api/admin/rbac`.
 
 ### CLI (PASE / local operator)
 

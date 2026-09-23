@@ -5,6 +5,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import type { RowChange, RowDelta, RowValueMap } from "@deltacore/shared";
 import { apiClient } from "../../auth/api.client";
 import { useStatusNotification } from "../../components/StatusBanner";
+import { usePermissions } from "../../auth/usePermissions";
 import type { SmartBackState } from "../../navigation/smartBack";
 
 type RowKind = "changed" | "onlyInSource" | "onlyInTarget";
@@ -31,6 +32,7 @@ const TITLES: Record<RowKind, string> = {
 export function RowDetailView() {
   const navigate = useNavigate();
   const { notify } = useStatusNotification();
+  const { canSave } = usePermissions("COMPARE");
   const state = useLocation().state as RowDetailState | null;
   const [labels, setLabels] = useState<Record<string, string>>(state?.labels ?? {});
   const [tableDescription, setTableDescription] = useState(state?.tableDescription ?? "");
@@ -121,6 +123,7 @@ export function RowDetailView() {
           sourceName={sourceName}
           targetName={targetName}
           onGenerateScript={() => void openScript()}
+          canSave={canSave}
         />
       ) : (
         <SingleSideRowsTable
@@ -186,6 +189,7 @@ function ChangedRowsTable({
   sourceName,
   targetName,
   onGenerateScript,
+  canSave,
 }: {
   rows: RowChange[];
   delta: RowDelta;
@@ -195,6 +199,7 @@ function ChangedRowsTable({
   sourceName?: string;
   targetName?: string;
   onGenerateScript: () => void;
+  canSave: boolean;
 }) {
   // Key columns (dictionary PK order) are pinned to the left; the rest follow in their original order.
   const keySet = new Set(delta.keyColumns.map((column) => column.toUpperCase()));
@@ -207,7 +212,7 @@ function ChangedRowsTable({
           <span className="dc-target font-semibold">Destino ({targetDsn || "no disponible"}{targetName ? ` · ${targetName}` : ""}): segunda línea</span>
           <span className="flex items-center gap-1 font-semibold text-amber-800"><CircleAlert size={14} /> Campo con diferencia</span>
         </div>
-        <button id="btnSave_rows_sql" type="button" className="btn btn-sm" onClick={onGenerateScript} disabled={rows.length === 0} title="Generar UPDATE y rollback para el destino">
+        <button id="btnSave_rows_sql" type="button" className="btn btn-sm" onClick={onGenerateScript} disabled={!canSave || rows.length === 0} title="Generar UPDATE y rollback para el destino">
           <FileCode2 size={14} /> Generar SQL
         </button>
       </div>

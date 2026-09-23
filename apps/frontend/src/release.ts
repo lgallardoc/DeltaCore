@@ -1,5 +1,5 @@
 export const CURRENT_RELEASE = {
-  version: "1.1.0",
+  version: "1.1.1",
   date: "2026-09-23",
   title: "Administración, permisos y comparación multi-entorno",
   changes: [
@@ -10,5 +10,7 @@ export const CURRENT_RELEASE = {
     "Carga de diccionarios por nombre lógico de catálogo y selección de origen y destino.",
     "Comparación de esquema, volumen y filas entre entornos con resolución de DSN físico.",
     "Corrección de assets y fallback SPA para despliegues bajo /deltacore/ en IBM i.",
+    "Asignación exclusiva de un perfil por usuario y menú filtrado por permisos.",
+    "Logout local determinista y validación de acceso para usuarios de solo lectura.",
   ],
 } as const;

@@ -622,7 +622,8 @@ export function DictionaryPanel({
                         <div className="flex gap-1">
                           <Link
                             id={`btnEdit_dictionary_${item.schema}_${item.table}`}
-                            className="btn btn-xs"
+                            className={["btn btn-xs", !canEdit ? "pointer-events-none opacity-50" : ""].join(" ")}
+                            aria-disabled={!canEdit}
                             to={`/dictionary/edit?dsn=${encodeURIComponent(dsn)}&schema=${encodeURIComponent(item.schema)}&table=${encodeURIComponent(item.table)}`}
                             state={
                               dictionaryBackState

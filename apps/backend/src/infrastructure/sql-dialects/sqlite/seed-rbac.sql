@@ -20,4 +20,5 @@ INSERT OR IGNORE INTO sys_role_permissions (
   role_id, module_id, can_view, can_read, can_write,
   can_create, can_edit, can_delete, can_save
 )
-SELECT 'role-readonly', id, 1, 1, 0, 0, 0, 0, 0 FROM sys_modules;
+SELECT 'role-readonly', id, 1, 1, 0, 0, 0, 0, 0 FROM sys_modules
+WHERE name NOT IN ('PROFILES', 'USERS');

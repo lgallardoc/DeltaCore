@@ -1,14 +1,15 @@
 import { BookMarked, ClipboardList, Database, GitCompare, ShieldCheck, Users } from "lucide-react";
 import { Link, Outlet, useLocation } from "react-router-dom";
+import { usePermissions } from "../../auth/usePermissions";
 import { Navbar } from "./Navbar";
 
 const NAV_ITEMS = [
-  { to: "/compare", label: "Comparar", icon: GitCompare },
-  { to: "/dictionary", label: "Diccionario", icon: BookMarked },
-  { to: "/catalog", label: "Catálogo", icon: Database },
-  { to: "/jobs", label: "Jobs", icon: ClipboardList },
-  { to: "/profiles", label: "Perfiles", icon: ShieldCheck },
-  { to: "/users", label: "Usuarios", icon: Users },
+  { to: "/compare", label: "Comparar", icon: GitCompare, moduleName: "COMPARE" },
+  { to: "/dictionary", label: "Diccionario", icon: BookMarked, moduleName: "DICTIONARY" },
+  { to: "/catalog", label: "Catálogo", icon: Database, moduleName: "CATALOG" },
+  { to: "/jobs", label: "Jobs", icon: ClipboardList, moduleName: "JOBS_CONFIG" },
+  { to: "/profiles", label: "Perfiles", icon: ShieldCheck, moduleName: "PROFILES" },
+  { to: "/users", label: "Usuarios", icon: Users, moduleName: "USERS" },
 ] as const;
 
 export function Layout() {
@@ -24,29 +25,7 @@ export function Layout() {
               Navegación
             </p>
             <nav className="mt-2 flex flex-col gap-1">
-              {NAV_ITEMS.map((item) => {
-                const Icon = item.icon;
-                const active =
-                  location.pathname === item.to ||
-                  location.pathname.startsWith(`${item.to}/`);
-                return (
-                  <Link
-                    key={item.to}
-                    to={item.to}
-                    className={[
-                      "rounded-lg border px-2 py-1.5 text-xs transition",
-                      active
-                        ? "border-[color:var(--brand-border)] bg-[color:var(--brand-soft)] text-[color:var(--brand)]"
-                        : "border-[color:var(--line)] bg-white hover:border-[color:var(--brand-border)] hover:bg-[color:var(--brand-soft)]",
-                    ].join(" ")}
-                  >
-                    <span className="flex items-center gap-2">
-                      <Icon size={14} />
-                      {item.label}
-                    </span>
-                  </Link>
-                );
-              })}
+              {NAV_ITEMS.map((item) => <PermissionNavItem key={item.to} item={item} active={location.pathname === item.to || location.pathname.startsWith(`${item.to}/`)} />)}
             </nav>
           </aside>
           <main className="fin-panel-soft flex min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border p-3 backdrop-blur">
@@ -57,5 +36,35 @@ export function Layout() {
         </div>
       </div>
     </div>
+  );
+}
+
+function PermissionNavItem({
+  item,
+  active,
+}: {
+  item: (typeof NAV_ITEMS)[number];
+  active: boolean;
+}) {
+  const { canView, isResolved } = usePermissions(item.moduleName);
+  if (!isResolved || !canView) {
+    return null;
+  }
+  const Icon = item.icon;
+  return (
+    <Link
+      to={item.to}
+      className={[
+        "rounded-lg border px-2 py-1.5 text-xs transition",
+        active
+          ? "border-[color:var(--brand-border)] bg-[color:var(--brand-soft)] text-[color:var(--brand)]"
+          : "border-[color:var(--line)] bg-white hover:border-[color:var(--brand-border)] hover:bg-[color:var(--brand-soft)]",
+      ].join(" ")}
+    >
+      <span className="flex items-center gap-2">
+        <Icon size={14} />
+        {item.label}
+      </span>
+    </Link>
   );
 }

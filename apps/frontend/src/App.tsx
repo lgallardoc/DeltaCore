@@ -15,6 +15,7 @@ import { JobList } from "./features/jobs/JobList";
 import { ReleaseView } from "./features/release/ReleaseView";
 import { ProfileView } from "./features/profiles/ProfileView";
 import { UserView } from "./features/users/UserView";
+import { LoggedOutView } from "./auth/LoggedOutView";
 
 export function App() {
   const basename = import.meta.env.VITE_HTTP_PREFIX?.replace(/\/$/, "") || undefined;
@@ -24,6 +25,7 @@ export function App() {
       <BrowserRouter basename={basename}>
         <StatusProvider>
           <Routes>
+          <Route path="/logged-out" element={<LoggedOutView />} />
           <Route
             element={
               <ProtectedRoute>

@@ -155,8 +155,9 @@ bearer token against the issuer JWKS configured by `KEYCLOAK_URL` and
 `KEYCLOAK_REALM`; no client secret is required for incoming JWT validation.
 
 On the first valid authenticated request, `SqliteRbacStore.ensureUser()` creates
-the user in `sys_users` and assigns the developer role. Emails or usernames in
-`RBAC_ADMIN_EMAILS` additionally receive the admin role, which has full module
-permissions. A temporary `JWT_CLOCK_TOLERANCE_SECONDS` can absorb IBM i clock
-drift, but the IBM i clock must ultimately be synchronized and the tolerance
-returned to its normal value.
+the user in `sys_users` with one default profile: `admin` for a new login. An
+administrator can later assign exactly one profile from **Usuarios**. The
+`solo lectura` profile can view permitted modules but cannot create, edit,
+delete, or save; menu entries without `canView` are hidden. A temporary
+`JWT_CLOCK_TOLERANCE_SECONDS` can absorb IBM i clock drift, but the IBM i clock
+must ultimately be synchronized and the tolerance returned to its normal value.

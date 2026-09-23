@@ -24,4 +24,27 @@ Realm import: `deltacore-realm.json`. Redirect URIs are static (`http://localhos
 The API validates incoming user JWTs using the issuer's JWKS. It does not use a
 client secret.
 
-SPA routes after login: `/compare`, `/dictionary`, `/catalog`, `/jobs`.
+SPA routes after login: `/compare`, `/dictionary`, `/catalog`, `/jobs`, `/profiles`, `/users`.
+
+## Local RBAC validation
+
+The local realm includes these users, all with password `dev123`:
+
+| User | Initial state | Suggested validation profile |
+| --- | --- | --- |
+| `developer` | `admin` after first login | Full access |
+| `readonly` | `admin` after first login | Assign `solo lectura` in Usuarios |
+| `operator` | `admin` after first login | Assign a custom profile in Perfiles, then in Usuarios |
+
+To recreate the local Keycloak realm after adding or changing these users:
+
+```bash
+npm run stop:sso
+npm run start:infra
+```
+
+Each test user must log in once so DeltaCore registers the SSO identity in SQLite.
+Then open **Usuarios**, select exactly one profile in the listbox, and save.
+Use a private browser window or log out between users. The first login grants
+`admin` by design; subsequent profile changes are preserved. `solo lectura` is
+exclusive and removes any previous profile assignment.

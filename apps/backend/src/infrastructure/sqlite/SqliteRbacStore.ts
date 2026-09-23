@@ -159,6 +159,9 @@ export class SqliteRbacStore {
       throw new Error("User not found");
     }
     const uniqueRoleIds = [...new Set(roleIds)];
+    if (uniqueRoleIds.length !== 1) {
+      throw new Error("A user must have exactly one profile");
+    }
     const placeholders = uniqueRoleIds.map(() => "?").join(",");
     if (uniqueRoleIds.length > 0) {
       const count = this.db
@@ -168,14 +171,38 @@ export class SqliteRbacStore {
         throw new Error("One or more profiles do not exist");
       }
     }
+    const readonlyRole = this.db
+      .prepare("SELECT id FROM sys_roles WHERE name = 'solo lectura' LIMIT 1")
+      .get() as { id: string } | undefined;
+    const effectiveRoleIds = readonlyRole && uniqueRoleIds.includes(readonlyRole.id)
+      ? uniqueRoleIds.filter((roleId) => roleId !== "role-admin" && roleId !== "role-developer")
+      : uniqueRoleIds;
     this.db.prepare("DELETE FROM sys_user_roles WHERE user_id = ?").run(userId);
     const insert = this.db.prepare(
       "INSERT INTO sys_user_roles (user_id, role_id) VALUES (?, ?)",
     );
-    for (const roleId of uniqueRoleIds) {
+    for (const roleId of effectiveRoleIds) {
       insert.run(userId, roleId);
     }
-    return uniqueRoleIds;
+    return effectiveRoleIds;
+  }
+
+  normalizeUserRoles(): void {
+    const users = this.db.prepare("SELECT id FROM sys_users").all() as Array<{ id: string }>;
+    const roles = this.db.prepare(
+      `SELECT ur.user_id, ur.role_id, r.name
+       FROM sys_user_roles ur JOIN sys_roles r ON r.id = ur.role_id
+       ORDER BY CASE r.name WHEN 'solo lectura' THEN 0 WHEN 'admin' THEN 1 WHEN 'developer' THEN 2 ELSE 3 END, r.name`,
+    ).all() as Array<{ user_id: string; role_id: string; name: string }>;
+    const rolesByUser = new Map<string, string>();
+    for (const role of roles) {
+      if (!rolesByUser.has(role.user_id)) rolesByUser.set(role.user_id, role.role_id);
+    }
+    const remove = this.db.prepare("DELETE FROM sys_user_roles WHERE user_id = ? AND role_id <> ?");
+    for (const user of users) {
+      const roleId = rolesByUser.get(user.id);
+      if (roleId) remove.run(user.id, roleId);
+    }
   }
 
   isAdmin(userId: string): boolean {
@@ -282,18 +309,25 @@ export class SqliteRbacStore {
   }
 
   private grantDefaultRole(userId: string, isAdmin: boolean): void {
-    this.db
-      .prepare(
-        "INSERT OR IGNORE INTO sys_user_roles (user_id, role_id) VALUES (?, 'role-developer')",
-      )
-      .run(userId);
     if (isAdmin) {
       this.db
         .prepare(
           "INSERT OR IGNORE INTO sys_user_roles (user_id, role_id) VALUES (?, 'role-admin')",
         )
         .run(userId);
+      return;
     }
+    const hasRole = this.db
+      .prepare("SELECT 1 FROM sys_user_roles WHERE user_id = ? LIMIT 1")
+      .get(userId);
+    if (hasRole) {
+      return;
+    }
+    this.db
+      .prepare(
+        "INSERT OR IGNORE INTO sys_user_roles (user_id, role_id) VALUES (?, 'role-developer')",
+      )
+      .run(userId);
   }
 
   private adminEmails(): Set<string> {

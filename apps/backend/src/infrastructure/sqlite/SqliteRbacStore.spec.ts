@@ -29,7 +29,7 @@ describe("SqliteRbacStore profiles", () => {
 
     expect(store.listUsers()).toContainEqual(expect.objectContaining({
       id: userId,
-      roles: ["admin", "developer"],
+      roles: ["admin"],
     }));
   });
 
