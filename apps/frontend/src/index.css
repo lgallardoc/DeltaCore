@@ -179,25 +179,42 @@ button {
   background: var(--brand-soft);
 }
 
-.fin-table-sticky-key {
+/* DaisyUI's table-pin-rows sets the <thead> itself to z-index: 1, which is lower
+   than the pinned key columns in tbody (z-index: 2 below). That let scrolling body
+   rows paint over the whole header. Raise the header row-group above every pinned
+   body column so it always stays on top during vertical scroll. */
+.table :where(.table-pin-rows thead) {
+  z-index: 5 !important;
+}
+
+.fin-table-sticky-col {
   position: sticky !important;
-  left: 0 !important;
+  left: var(--sticky-left, 0px) !important;
   z-index: 2 !important;
   min-width: 6rem;
   box-shadow: 1px 0 0 var(--line), 0 0 8px rgba(15, 23, 42, 0.08);
 }
 
-.table thead .fin-table-sticky-key {
+.table thead .fin-table-sticky-col {
   top: 0 !important;
-  left: 0 !important;
-  z-index: 10 !important;
+  z-index: 20 !important;
   background: var(--brand-soft) !important;
   color: var(--ink) !important;
 }
 
-.table tbody .fin-table-sticky-key {
+.table tbody .fin-table-sticky-col {
   z-index: 2 !important;
   background: #ffffff;
+}
+
+/* Distinct highlight for primary-key columns pinned to the left of row-compare tables */
+.fin-table-key-col.fin-table-sticky-col {
+  background: #eef2ff !important;
+}
+
+.table thead .fin-table-key-col.fin-table-sticky-col {
+  background: #c7d2fe !important;
+  color: #312e81 !important;
 }
 
 .badge {

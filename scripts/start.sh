@@ -20,7 +20,7 @@ if docker image inspect db2-az7:latest >/dev/null 2>&1; then
   else
     echo "Creating Db2 container on host port ${DB2_HOST_PORT}..."
     docker run -d --name db2-az7 --hostname db2server --platform linux/amd64 --privileged=true \
-      -p "${DB2_HOST_PORT}:${DB2_CONTAINER_PORT}" \
+      -p "${DB2_BIND_ADDRESS}:${DB2_HOST_PORT}:${DB2_CONTAINER_PORT}" \
       -e LICENSE=accept \
       -e "DBNAME=${DB2_NAME}" \
       -e DB2INSTANCE=db2inst1 \
@@ -30,13 +30,13 @@ if docker image inspect db2-az7:latest >/dev/null 2>&1; then
       db2-az7:latest >/dev/null
   fi
 else
-  echo "Image db2-az7:latest not found. Skip Db2. Build with: cd infrastructure/db2-az7-generator && pnpm run build:docker"
+  echo "Image db2-az7:latest not found. Skip Db2. Build with: cd infrastructure/db2-az7-generator && npm run build:docker"
 fi
 
 if [[ "${INFRA_ONLY}" -eq 1 ]]; then
-  echo "Infrastructure is up. Apps: pnpm run dev"
+  echo "Infrastructure is up. Apps: npm run dev"
   exit 0
 fi
 
 cd "${ROOT}"
-exec pnpm run dev
+exec npm run dev

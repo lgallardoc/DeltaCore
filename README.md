@@ -34,58 +34,212 @@ A **source** is an ODBC DSN plus metadata in SQLite. You pick **origen** and **d
 
 **Add a source**
 
-1. Register the DSN in unixODBC (`odbc.ini` / IBM CLI). `pnpm start` only writes the DSN named `DB2_ODBC_DSN`; extra DSNs (for example `AZ7DBPRDCL`) must be added to `odbc.ini` by hand or they will not connect.
-2. Insert (or update) a row in `biz_data_sources` (`odbc_dsn` must match the unixODBC name). After changing the seed file, run `pnpm run init:db` on a **new** database, or `INSERT`/`UPDATE` in `apps/backend/data/deltacore.db` (`INSERT OR IGNORE` does not update existing rows).
+1. Register the DSN in unixODBC (`odbc.ini` / IBM CLI). `npm start` only writes the DSN named `DB2_ODBC_DSN`; extra DSNs (for example `AZ7DBPRDCL`) must be added to `odbc.ini` by hand or they will not connect.
+2. Insert (or update) a row in `biz_data_sources` (`odbc_dsn` must match the unixODBC name). After changing the seed file, run `npm run init:db` on a **new** database, or `INSERT`/`UPDATE` in `apps/backend/data/deltacore.db` (`INSERT OR IGNORE` does not update existing rows).
 3. In Comparar, choose the DSN in **DSN origen** and **DSN destino**. In CLI, pass `--source` and `--target`.
 
 Schemas for volume/row compare are **not** the DSN: they are `--source-schema` / `--target-schema` (UI: esquema origen / destino).
 
-## Ports (all from `.env`)
+## Network configuration (single source: `.env`)
 
-Copy `.env.example` to `.env`. Do not hardcode ports in application code; change them here.
+Copy `.env.example` to `.env`. Configure host/IP, port and public URL in the
+repo-root `.env`; do not hardcode them in application or Compose files.
 
-| Layer | Variable | Default | Role |
+All `npm start`, `npm run dev`, `npm run status` and stop scripts load only
+the repo-root `.env`. `.env.Deltacore` is the ITG profile and is not loaded
+automatically; copy its intended values into `.env` before starting that
+environment. Never commit either file because they can contain credentials.
+
+| Layer | Bind address | Port / URL | Role |
 | --- | --- | --- | --- |
-| Vite UI | `VITE_DEV_PORT` | `5173` | Browser origin for the SPA |
-| Vite → API | `VITE_API_PROXY_TARGET` | `http://127.0.0.1:4000` | Dev proxy for `/api` |
-| Browser CORS | `CORS_ORIGIN` | `http://localhost:5173` | Allowed origin on Express (must match the UI URL) |
-| Express API | `PORT` | `4000` | HTTP listen port (`GET /health`) |
-| SPA → Keycloak | `VITE_KEYCLOAK_URL` | `http://localhost:8080` | OIDC issuer host used by `keycloak-js` |
-| API → Keycloak | `KEYCLOAK_URL` / `KEYCLOAK_REALM` | `8080` / `DeltaCoreRealm` | JWT JWKS / issuer |
-| Keycloak Docker | `KEYCLOAK_HTTP_PORT` | `8080` | Host mapping to container `8080` |
-| Db2 host | `DB2_HOSTNAME` + `DB2_HOST_PORT` | `127.0.0.1:50000` | unixODBC / CLI |
-| Db2 container | `DB2_CONTAINER_PORT` | `50000` | Inside the Db2 image |
+| Vite UI | `VITE_DEV_HOST=127.0.0.1` | `VITE_DEV_PORT=5173` | SPA listener |
+| Vite → API | n/a | `VITE_API_PROXY_TARGET=http://127.0.0.1:4000` | Dev proxy destination for `/api` |
+| Express API | `BACKEND_HOST=127.0.0.1` | `PORT=4000` | API listener (`GET /health`) |
+| Browser CORS | n/a | `CORS_ORIGIN=http://localhost:5173` | Allowed SPA origin; must match its browser URL |
+| Keycloak Docker | `KEYCLOAK_BIND_ADDRESS=127.0.0.1` | `KEYCLOAK_HTTP_PORT=8080` | Host-to-container `8080` mapping |
+| SPA → Keycloak | n/a | `VITE_KEYCLOAK_URL=http://localhost:8080` | Browser-visible OIDC base URL |
+| API → Keycloak | n/a | `KEYCLOAK_URL` + `KEYCLOAK_REALM` | JWT issuer and JWKS base |
+| Db2 Docker | `DB2_BIND_ADDRESS=127.0.0.1` | `DB2_HOST_PORT=50000` → `DB2_CONTAINER_PORT=50000` | Published container port |
+| Db2 client | `DB2_HOSTNAME=127.0.0.1` | `DB2_HOST_PORT=50000` | unixODBC destination |
+
+For IBM i/ITG, the public URL is `https://fdesa01.falabella.cl/deltacore/`.
+Nginx terminates TLS on port 443 and proxies `/deltacore/` to the private
+Express listener on `127.0.0.1:30222`. The frontend is built with
+`VITE_HTTP_PREFIX=/deltacore`, and Nginx must forward `Authorization`.
 
 Changing `VITE_DEV_PORT` also requires matching redirect URIs in `infrastructure/sso/deltacore-realm.json` (Keycloak import does not expand `.env`).
+
+Use `0.0.0.0` only when another machine must reach a listener. Also update
+`CORS_ORIGIN`, Keycloak redirect URIs/web origins, firewall rules and the
+browser-visible URLs. Run `npm run status` to display the effective endpoints.
 
 ## Commands
 
 From the repo root (`nodeapp/DeltaCore`). Docker Desktop must be running for Keycloak and Db2.
 
 ```bash
-pnpm install
+npm install
 cp .env.example .env   # first time only; start.sh also copies if missing
-pnpm run init:db
-pnpm start              # Keycloak + Db2 (if image exists) + frontend + backend
+npm run init:db
+npm start              # Keycloak + Db2 (if image exists) + frontend + backend
 ```
 
-Package manager: **pnpm** (workspace defined in `pnpm-workspace.yaml`). `pnpm install` may prompt to approve native build scripts (`odbc`, `esbuild`) on first run; they are pre-approved via `allowBuilds` in `pnpm-workspace.yaml`.
+Package manager: **npm**. Workspaces are declared in the root `package.json`, and
+`package-lock.json` is the only dependency lockfile.
 
 | Command | Effect |
 | --- | --- |
-| `pnpm start` | Apply ODBC from `.env`, start Keycloak, start/create `db2-az7`, then `pnpm run dev` |
-| `pnpm run start:infra` | Same infrastructure only (no Vite/Express) |
-| `pnpm run dev` | Concurrent backend (`PORT`) and frontend (`VITE_DEV_PORT`) |
-| `pnpm run status` | Print configured ports and HTTP/Docker health |
-| `pnpm stop` | Stop Vite, Express, Keycloak and `db2-az7` |
-| `pnpm run stop:apps` | Stop only frontend (`VITE_DEV_PORT`) and backend (`PORT`) |
-| `pnpm run stop:sso` | Stop Keycloak, leave Db2 and Node apps running |
-| `pnpm test` | Workspace tests (`pnpm -r --if-present run test`) |
-| `pnpm run init:db` | SQLite schema/seed |
-| `pnpm run cli -- list-schemas` | Schemas assigned to a DSN (`*LIBL*`) and catalog presence |
-| `pnpm run cli -- list-tables` | Tables in those schemas (`schema.table`) |
+| `npm start` | Apply ODBC from `.env`, start Keycloak, start/create `db2-az7`, then `npm run dev` |
+| `npm run start:infra` | Same infrastructure only (no Vite/Express) |
+| `npm run dev` | Concurrent backend (`PORT`) and frontend (`VITE_DEV_PORT`) |
+| `npm run start:backend` | Start the compiled backend and frontend from Express |
+| `npm run start:prod` | Start the compiled backend with PM2 for proxy-based deployment |
+| `npm run frontend` | Start only the Vite frontend (`VITE_DEV_PORT`) |
+| `npm run build` | Build the frontend and backend for deployment |
+| `npm run build:itg` | Build using `.env.Deltacore` for IBM i/ITG deployment |
+| `npm run status` | Print configured ports and HTTP/Docker health |
+| `npm stop` | Stop Vite, Express, Keycloak and `db2-az7` |
+| `npm run stop:apps` | Stop only frontend (`VITE_DEV_PORT`) and backend (`PORT`) |
+| `npm run stop:sso` | Stop Keycloak, leave Db2 and Node apps running |
+| `npm test` | Workspace tests |
+| `npm run init:db` | SQLite schema/seed |
+| `npm run cli -- list-schemas` | Schemas assigned to a DSN (`*LIBL*`) and catalog presence |
+| `npm run cli -- list-tables` | Tables in those schemas (`schema.table`) |
+| `npm run sync:fdesa01` | Sync the project to IBM i and restore `apps/backend/node_modules/odbc` from `$HOME/odbc.tar` |
 
-Stop Node + Docker with `pnpm stop`. Only the UI/API: `pnpm run stop:apps`. Then start again with `pnpm run dev` (apps) or `pnpm start` (infra + apps).
+Stop Node + Docker with `npm stop`. Only the UI/API: `npm run stop:apps`. Then start again with `npm run dev` (apps) or `npm start` (infra + apps).
+
+### IBM i synchronization
+
+Run `npm run sync:fdesa01` from the repository root. The script performs these
+steps in order:
+
+1. Verifies SSH access plus remote `rsync`, `tar` and `$HOME/odbc.tar`.
+2. Synchronizes the local project to
+	`cllagc@fdesa01.falabella.cl:/nodeapp/DeltaCore`.
+3. Copies local `.env.Deltacore` to remote `/nodeapp/DeltaCore/.env`.
+4. Removes remote `/nodeapp/DeltaCore/apps/backend/node_modules/odbc`.
+5. Extracts remote `$HOME/odbc.tar` into the backend workspace dependencies.
+
+The sync uses `--delete` but does not copy any local `node_modules` directory;
+it preserves remote `.env`, `.env.Deltacore`, all remote `node_modules`
+directories, backend data and generated build directories. It then replaces
+remote `apps/backend/node_modules/odbc` with the PASE build from
+`$HOME/odbc.tar`. Install the remaining dependencies on IBM i. Each execution
+writes a timestamped local log under `.logs/`; logs are not synchronized or
+committed. `rsync` reports processed files (`-v`), itemized changes and total
+progress (`--info=progress2`); older/openrsync installations automatically use
+`--progress` instead. During file-list generation or comparison, when
+openrsync does not emit progress, the script prints an activity line every five
+seconds with the elapsed time. Override the SSH
+user, host or home-relative destination when needed. The connection is
+non-interactive and does not store a password:
+
+```bash
+DELTA_REMOTE_USER=cllagc \
+DELTA_REMOTE_HOST=fdesa01.falabella.cl \
+DELTA_REMOTE_DIR=/nodeapp/DeltaCore \
+npm run sync:fdesa01
+```
+
+For passwordless local sync, configure an SSH public key for `cllagc` on
+`fdesa01.falabella.cl`. Ed25519 is preferred; RSA is also supported when
+required by the server:
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/deltacore-fdesa01
+ssh-copy-id -i ~/.ssh/deltacore-fdesa01.pub cllagc@fdesa01.falabella.cl
+DELTA_SSH_KEY=~/.ssh/deltacore-fdesa01 npm run sync:fdesa01
+```
+
+### Frontend en IBM i
+
+Vite se usa para desarrollo local y no se ejecuta en IBM i porque `esbuild`
+no tiene binario para `os400 ppc64`. Para ejecutar frontend y backend juntos en
+IBM i, construye el frontend localmente y activa el servidor estático de
+Express:
+
+```bash
+# En la máquina local, desde la raíz
+npm run build:itg
+npm run sync:fdesa01
+```
+
+En `.env.Deltacore`, usado como `.env` remoto, configura:
+
+```bash
+SERVE_FRONTEND=true
+BACKEND_HOST=0.0.0.0
+```
+
+En el despliegue actual con Nginx usa:
+
+```dotenv
+VITE_HTTP_PREFIX=/deltacore
+SERVE_FRONTEND=true
+BACKEND_HOST=127.0.0.1
+PORT=30222
+CORS_ORIGIN=https://fdesa01.falabella.cl:30222
+VITE_KEYCLOAK_URL=https://qa-access-key-corp.falabella.tech/auth
+VITE_KEYCLOAK_REALM=corp
+VITE_KEYCLOAK_CLIENT_ID=switch-spa
+RBAC_ADMIN_EMAILS=lagallardoc@falabella.cl,lagallardoc
+```
+
+Después del sincronizado, el backend sirve la SPA y la API desde `PORT`.
+Instala solo las dependencias runtime del backend y restaura el módulo PASE de
+ODBC:
+
+```bash
+cd /nodeapp/DeltaCore/apps/backend
+npm install --production --ignore-scripts --no-package-lock
+cd ../..
+rm -rf apps/backend/node_modules/odbc
+tar -xf "$HOME/odbc.tar" -C apps/backend/node_modules
+npm run start:backend
+```
+
+Para el despliegue con la arquitectura de `coreweb`, configura el proxy TLS de
+IBM i para publicar `/deltacore/` y reenviar la ruta a
+`http://127.0.0.1:30222/`. Debe reenviar también el header `Authorization`.
+El backend usa:
+
+```bash
+SERVE_FRONTEND=true
+BACKEND_HOST=127.0.0.1
+PORT=30222
+CORS_ORIGIN=https://fdesa01.falabella.cl
+```
+
+Si el certificado debe terminar directamente en DeltaCore, configura en `.env`
+del IBM i los dos archivos TLS y usa el mismo `PORT` para HTTPS:
+
+```bash
+HTTPS_CERT_FILE=/ruta/segura/fullchain.pem
+HTTPS_KEY_FILE=/ruta/segura/privkey.pem
+```
+
+Ambos archivos son obligatorios juntos y no deben sincronizarse ni versionarse.
+
+Después inicia el proceso con `npm run start:prod`. El navegador debe abrir la
+URL HTTPS del proxy en `/deltacore/`, no el puerto interno de Node. El cliente OIDC toma el
+protocolo, host y puerto actuales para `redirect_uri`, igual que `coreweb`.
+
+El cliente `switch-spa` debe autorizar:
+
+```text
+https://fdesa01.falabella.cl/deltacore/*
+```
+
+Si el JWT es rechazado por `exp`, revisar el reloj del IBM i frente a Keycloak.
+`JWT_CLOCK_TOLERANCE_SECONDS=7200` es solo una mitigación temporal; una vez
+corregido NTP debe volver a `360`.
+
+The script also works with a key already loaded in `ssh-agent`; in that case
+`DELTA_SSH_KEY` can be omitted. It uses `BatchMode=yes`, so it fails instead
+of prompting for a password when key authentication is unavailable. A token
+cannot be used by `rsync` over SSH unless the remote SSH service explicitly
+provides token-based authentication.
 
 ### Lab Db2 (first time)
 
@@ -101,12 +255,12 @@ On Apple Silicon, Db2 must use `--platform linux/amd64` and base image `icr.io/d
 
 ### unixODBC
 
-DSN files are **not** tied to where unixODBC is installed. `source infrastructure/odbc/env.sh` sets `ODBCINI` / `ODBCSYSINI` to `infrastructure/odbc/`. The Driver Manager (`libodbc`) **is** tied to the prefix used when you ran `pnpm install` (which builds the native `odbc` addon).
+DSN files are **not** tied to where unixODBC is installed. `source infrastructure/odbc/env.sh` sets `ODBCINI` / `ODBCSYSINI` to `infrastructure/odbc/`. The Driver Manager (`libodbc`) **is** tied to the prefix used when you ran `npm install` (which builds the native `odbc` addon).
 
 If unixODBC lives somewhere else (otro Homebrew, `/usr/local`, PASE):
 
 1. Set `UNIXODBC_LIB_DIR` in `.env` to the directory that contains `libodbc.dylib` or `libodbc.so`.
-2. Rebuild the native addon on **that** machine: `pnpm --filter @deltacore/backend rebuild odbc`.
+2. Rebuild the native addon on **that** machine: `npm rebuild odbc --workspace @deltacore/backend`.
 3. Optionally set `IBM_DB_HOME` and `IBM_DB_LIB` if the IBM CLI is not under `infrastructure/odbc/clidriver`.
 
 ```bash
@@ -114,7 +268,7 @@ source infrastructure/odbc/env.sh
 isql -v AZ7DB   # DSN name is DB2_ODBC_DSN
 ```
 
-`pnpm start` regenerates `odbc.ini` / `db2dsdriver.cfg` from `.env` for **`DB2_ODBC_DSN` only**. Lab catalog SQL uses Db2 LUW `SYSCAT` when `DB2_CATALOG=luw` (`sql-dialects/db2`). IBM i uses `DB2_CATALOG=ibmi` and `sql-dialects/db2-ibmi` (`QSYS2`). Do not put IBM i SQL in the `db2/` folder (it breaks the AZ7 LUW lab). Default schema-compare table in the Jobs UI: `VITE_SCHEMA_COMPARE_TABLES` (e.g. `ACCCR7`).
+`npm start` regenerates `odbc.ini` / `db2dsdriver.cfg` from `.env` for **`DB2_ODBC_DSN` only**. Lab catalog SQL uses Db2 LUW `SYSCAT` when `DB2_CATALOG=luw` (`sql-dialects/db2`). IBM i uses `DB2_CATALOG=ibmi` and `sql-dialects/db2-ibmi` (`QSYS2`). Do not put IBM i SQL in the `db2/` folder (it breaks the AZ7 LUW lab). Default schema-compare table in the Jobs UI: `VITE_SCHEMA_COMPARE_TABLES` (e.g. `ACCCR7`).
 
 ### UI
 
@@ -154,16 +308,16 @@ HTTP (JWT): `POST /api/jobs/:id/{schema,volume,row}-compare`, `GET /api/catalog/
 Same `ComparisonEngine` as the HTTP adapter. Does not use Keycloak.
 
 ```bash
-pnpm run cli -- help
-pnpm run cli -- schema-compare --table ACCCR7
-pnpm run cli -- schema-compare --source AZ7DB --target AZ7DB --table ACCCR7 --json
-pnpm run cli -- volume-compare --source AZ7DB --target AZ7DBPRDCL --table ACCTX --source-schema AZBASWQA --target-schema AXSW1PDCL --json
-pnpm run cli -- row-compare --source AZ7DB --target AZ7DBPRDCL --table ACCTX --source-schema AZBASWQA --target-schema AXSW1PDCL --key ID,CODE --json
-pnpm run cli -- list-schemas --dsn AZ7DB
-pnpm run cli -- find-table --table AZLHT
-pnpm run cli -- find-table --table AZLHT --all-schemas
-pnpm run cli -- describe-table --table ACCCR7
-pnpm run cli -- describe-table --table ACCCR7 --schema AZBASWQA
+npm run cli -- help
+npm run cli -- schema-compare --table ACCCR7
+npm run cli -- schema-compare --source AZ7DB --target AZ7DB --table ACCCR7 --json
+npm run cli -- volume-compare --source AZ7DB --target AZ7DBPRDCL --table ACCTX --source-schema AZBASWQA --target-schema AXSW1PDCL --json
+npm run cli -- row-compare --source AZ7DB --target AZ7DBPRDCL --table ACCTX --source-schema AZBASWQA --target-schema AXSW1PDCL --key ID,CODE --json
+npm run cli -- list-schemas --dsn AZ7DB
+npm run cli -- find-table --table AZLHT
+npm run cli -- find-table --table AZLHT --all-schemas
+npm run cli -- describe-table --table ACCCR7
+npm run cli -- describe-table --table ACCCR7 --schema AZBASWQA
 ```
 
 `--key` is comma-separated (and/or repeatable). `--limit` default 10000 (max 50000). CHAR trailing spaces are trimmed on row compare.
@@ -173,3 +327,28 @@ Exit codes: `0` SUCCESS, `2` DIFFERENCE, `1` ERROR or usage error.
 ### SSO (lab)
 
 Keycloak admin: `KEYCLOAK_ADMIN` / `KEYCLOAK_ADMIN_PASSWORD` (defaults `admin` / `admin`). Realm `DeltaCoreRealm`, client `deltacore-frontend-client`, user `developer` / `dev123`. See [infrastructure/sso/README.md](infrastructure/sso/README.md).
+
+
+🛠️ Paso 1: Levantar el túnel desde tu Computadora (Local)
+
+Necesitas tener acceso SSH a tu IBM i desde tu PC (a través del puerto SSH por defecto de la máquina, usualmente el 22).
+
+Abre la terminal de tu computadora (PowerShell en Windows, Terminal en Mac/Linux) y ejecuta el siguiente comando:
+bash
+
+ssh -R 1080 -N -f cllagc@fdesa01.falabella.cl
+
+🛠️ Paso 2: Configurar las herramientas en el IBM i
+
+Ahora que el puerto 1080 de tu IBM i está escuchando y reenviando tráfico a tu computadora, debes decirle a tus aplicaciones de Open Source en el iSeries que utilicen este proxy.
+
+Conéctate a tu terminal del IBM i (por ejemplo, en VS Code "Code for IBM i" o SSH normal) y configura las variables de entorno de red de tu sesión PASE:
+1. Para comandos generales (curl, git, etc.)
+
+Ejecuta esto en tu terminal del IBM i:
+bash
+
+export http_proxy=socks5h://127.0.0.1:1080
+export https_proxy=socks5h://127.0.0.1:1080
+
+💡 Nota: El prefijo socks5h:// es crucial porque le dice al IBM i que incluso la resolución de nombres DNS debe delegarse a tu computadora local (evitando fallos de DNS en la red interna del iSeries).

@@ -9,9 +9,10 @@ code() {
 }
 
 echo "Ports (from .env)"
-echo "  frontend     ${CORS_ORIGIN}  (VITE_DEV_PORT=${VITE_DEV_PORT})"
-echo "  backend      http://127.0.0.1:${PORT}"
-echo "  keycloak     ${KEYCLOAK_URL}  (host ${KEYCLOAK_HTTP_PORT})"
+echo "  frontend     ${VITE_DEV_HOST}:${VITE_DEV_PORT}  origin=${CORS_ORIGIN}"
+echo "  backend      ${BACKEND_HOST}:${PORT}"
+echo "  keycloak     ${KEYCLOAK_BIND_ADDRESS}:${KEYCLOAK_HTTP_PORT}  url=${KEYCLOAK_URL}"
+echo "  db2 docker   ${DB2_BIND_ADDRESS}:${DB2_HOST_PORT}->${DB2_CONTAINER_PORT}"
 echo "  db2 odbc     ${DB2_HOSTNAME}:${DB2_HOST_PORT}  dsn=${DB2_ODBC_DSN}"
 echo
 echo "HTTP"

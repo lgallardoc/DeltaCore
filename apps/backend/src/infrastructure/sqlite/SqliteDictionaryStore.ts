@@ -35,19 +35,26 @@ export class SqliteDictionaryStore {
   }
 
   get(schema: string, table: string): SavedDictionary | undefined {
+    const schemaName = schema.trim().toUpperCase();
     const tableName = table.trim().toUpperCase();
     if (!tableName) {
       return undefined;
     }
+    const schemaFilter = schemaName
+      ? "CASE WHEN schema_name = ? THEN 0 ELSE 1 END, "
+      : "";
+    const params = schemaName
+      ? [tableName, schemaName]
+      : [tableName];
     const row = this.db
       .prepare(
         `SELECT id, schema_name, table_name, table_description, row_count, source_dsn, updated_at
          FROM biz_data_dictionaries
         WHERE table_name = ?
-        ORDER BY updated_at DESC
+        ORDER BY ${schemaFilter}updated_at DESC
          LIMIT 1`,
       )
-      .get(tableName) as
+      .all(...params)[0] as
       | {
           id: string;
           schema_name: string;
@@ -196,7 +203,7 @@ export class SqliteDictionaryStore {
         index,
       );
     });
-    const saved = this.get("", table);
+    const saved = this.get(schema, table);
     if (!saved) {
       throw new Error("failed to save dictionary");
     }

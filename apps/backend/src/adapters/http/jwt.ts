@@ -3,13 +3,16 @@ import type { AccessIdentity } from "../../domain/AccessIdentity.js";
 
 export type { AccessIdentity };
 
-export function createJwtVerifier(issuer: string) {
+export function createJwtVerifier(issuer: string, clockToleranceSeconds = 360) {
   const jwks = createRemoteJWKSet(
     new URL(`${issuer}/protocol/openid-connect/certs`),
   );
 
   return async function verifyAccessToken(token: string): Promise<AccessIdentity> {
-    const { payload } = await jwtVerify(token, jwks, { issuer });
+    const { payload } = await jwtVerify(token, jwks, {
+      issuer,
+      clockTolerance: clockToleranceSeconds,
+    });
     return identityFromPayload(payload);
   };
 }

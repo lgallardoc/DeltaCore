@@ -1,4 +1,5 @@
 INSERT OR IGNORE INTO sys_roles (id, name) VALUES ('role-developer', 'developer');
+INSERT OR IGNORE INTO sys_roles (id, name) VALUES ('role-admin', 'admin');
 
 INSERT OR IGNORE INTO sys_modules (id, name, path)
 VALUES ('mod-jobs-config', 'JOBS_CONFIG', '/jobs');

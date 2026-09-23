@@ -7,6 +7,10 @@ export class SqliteRbacStore {
   constructor(private readonly db: DatabaseSync) {}
 
   ensureUser(identity: AccessIdentity): string {
+    const adminIdentifiers = this.adminEmails();
+    const isAdmin = [identity.email, identity.preferredUsername]
+      .filter((value): value is string => Boolean(value))
+      .some((value) => adminIdentifiers.has(value.trim().toLowerCase()));
     const existing = this.db
       .prepare(
         `SELECT id FROM sys_users
@@ -24,7 +28,7 @@ export class SqliteRbacStore {
         .prepare("UPDATE sys_users SET sso_id = ? WHERE id = ?")
         .run(identity.sub, existing.id);
     }
-      this.grantDeveloperRole(existing.id);
+      this.grantDefaultRole(existing.id, isAdmin);
       return existing.id;
     }
 
@@ -35,11 +39,24 @@ export class SqliteRbacStore {
     this.db
       .prepare("INSERT INTO sys_users (id, sso_id, email) VALUES (?, ?, ?)")
       .run(id, identity.sub, email);
-    this.grantDeveloperRole(id);
+    this.grantDefaultRole(id, isAdmin);
     return id;
   }
 
   permissionsFor(userId: string, moduleName: string): RBACPermission {
+    const isAdmin = this.db
+      .prepare(
+        `SELECT 1
+         FROM sys_user_roles ur
+         JOIN sys_roles r ON r.id = ur.role_id
+         WHERE ur.user_id = ? AND r.name = 'admin'
+         LIMIT 1`,
+      )
+      .get(userId);
+    if (isAdmin) {
+      return { canView: true, canRead: true, canWrite: true };
+    }
+
     const row = this.db
       .prepare(
         `SELECT
@@ -62,11 +79,27 @@ export class SqliteRbacStore {
     };
   }
 
-  private grantDeveloperRole(userId: string): void {
+  private grantDefaultRole(userId: string, isAdmin: boolean): void {
     this.db
       .prepare(
         "INSERT OR IGNORE INTO sys_user_roles (user_id, role_id) VALUES (?, 'role-developer')",
       )
       .run(userId);
+    if (isAdmin) {
+      this.db
+        .prepare(
+          "INSERT OR IGNORE INTO sys_user_roles (user_id, role_id) VALUES (?, 'role-admin')",
+        )
+        .run(userId);
+    }
+  }
+
+  private adminEmails(): Set<string> {
+    return new Set(
+      (process.env.RBAC_ADMIN_EMAILS ?? "")
+        .split(",")
+        .map((email) => email.trim().toLowerCase())
+        .filter(Boolean),
+    );
   }
 }

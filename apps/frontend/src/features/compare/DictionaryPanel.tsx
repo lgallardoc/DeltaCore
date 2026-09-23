@@ -54,6 +54,7 @@ type Props = {
   showColumns?: boolean;
   dictionaryBackState?: DictionaryListState;
   initialSession?: unknown;
+  localDictionaries?: DictionaryRecord[];
   onLoaded?: (dictionary: DictionaryRecord) => void;
 };
 
@@ -67,6 +68,7 @@ export function DictionaryPanel({
   showColumns = true,
   dictionaryBackState,
   initialSession,
+  localDictionaries = [],
   onLoaded,
 }: Props) {
   const { notify } = useStatusNotification();
@@ -326,6 +328,24 @@ export function DictionaryPanel({
       void load(false);
     }
   }, [autoLoad, dsn, schema, table]);
+
+  useEffect(() => {
+    if (!autoLoad || localDictionaries.length === 0) {
+      return;
+    }
+    setOrigin("saved");
+    setDescriptions(localDictionaries);
+    setProgress({ current: localDictionaries.length, total: localDictionaries.length });
+    const first = localDictionaries[0];
+    setColumns(first.columns);
+    setActiveSchema(first.schema);
+    setActiveTable(first.table);
+    setActiveTableDescription(first.tableDescription ?? "");
+    setActiveRowCount(first.rowCount ?? 0);
+    setSelectedTableKey(`${first.schema}.${first.table}`);
+    onLoaded?.(first);
+    setProgress(null);
+  }, [autoLoad, localDictionaries, onLoaded]);
 
   function publish(next: DictionaryRecord["columns"], nextOrigin = origin) {
     setColumns(next);

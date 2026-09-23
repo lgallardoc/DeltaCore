@@ -15,9 +15,11 @@ import { JobList } from "./features/jobs/JobList";
 const JOBS_MODULE = "JOBS_CONFIG";
 
 export function App() {
+  const basename = import.meta.env.VITE_HTTP_PREFIX?.replace(/\/$/, "") || undefined;
+
   return (
     <AuthProvider>
-      <BrowserRouter>
+      <BrowserRouter basename={basename}>
         <StatusProvider>
           <Routes>
           <Route

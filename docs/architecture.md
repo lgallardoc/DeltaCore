@@ -11,11 +11,44 @@ CLI argv --------------------+
               unixODBC + SQLite (sys_/biz_)
 ```
 
+### Production / IBM i topology
+
+In IBM i, Vite is not executed on PASE because its `esbuild` dependency has no
+`os400 ppc64` binary. The frontend is built on the development machine with
+`npm run build:itg`, synchronized as `apps/frontend/dist`, and served by the
+compiled Express process.
+
+The production topology follows the `coreweb` pattern:
+
+```text
+Browser
+  https://fdesa01.falabella.cl/deltacore/
+    |
+    v
+Nginx :443 (TLS, /deltacore/)
+    |
+    v
+Node/Express 127.0.0.1:30222
+  - static SPA
+  - /deltacore/api/* -> /api/*
+  - JWT validation and RBAC
+    |
+    v
+SQLite + IBM i unixODBC
+```
+
+Nginx must forward the `Authorization` header. The Keycloak client must allow
+the public redirect URI:
+`https://fdesa01.falabella.cl/deltacore/*`.
+
 HTTP (`adapters/http`) and CLI (`adapters/cli`) are adapters only. They share `createBackendRuntime()`.
 
 - **`packages/shared`**: ports and DTOs only (`IOdbcConnection`, `ISqlQueryProvider`, `IAuditRepository`, `IComparisonEngine`).
 - **`apps/backend`**: application/domain plus adapters (HTTP, CLI, SQLite, SQL files, unixODBC). JWT validation on HTTP only.
 - **`apps/frontend`**: React adapters. Auth via Keycloak; API calls go through Vite `/api` proxy in development (`VITE_API_PROXY_TARGET`).
+- **`apps/frontend`**: React adapters. Auth uses Keycloak Authorization Code +
+    PKCE. `VITE_HTTP_PREFIX` supplies the production subpath and prefixes API
+    calls, so IBM i uses `/deltacore/api` behind Nginx.
 - **Infrastructure**: Keycloak Compose, Db2 AZ7 generator, unixODBC driver under `infrastructure/odbc`.
 
 SQL for engines is not in TypeScript. Load from `apps/backend/src/infrastructure/sql-dialects/<engine>/<feature>.sql` with `{{var}}` interpolation.
@@ -92,6 +125,10 @@ Single source of truth: repository-root `.env` (see `.env.example`).
 | Docker publish Db2 | `DB2_HOST_PORT`:`DB2_CONTAINER_PORT` |
 | unixODBC install | `UNIXODBC_LIB_DIR`, optional `UNIXODBC_SYSCONF` |
 | IBM CLI | `IBM_DB_HOME`, `IBM_DB_LIB` |
+| IBM i public deployment | `VITE_HTTP_PREFIX`, `SERVE_FRONTEND`, `BACKEND_HOST`, `PORT`, `CORS_ORIGIN` |
+| TLS directly in Node (optional) | `HTTPS_CERT_FILE`, `HTTPS_KEY_FILE` |
+| RBAC administration | `RBAC_ADMIN_EMAILS` |
+| JWT clock skew workaround | `JWT_CLOCK_TOLERANCE_SECONDS` |
 
 Scripts:
 
@@ -107,5 +144,19 @@ Container-internal Keycloak HTTP remains `8080`; only the **host** port is confi
 
 - Production target: IBM i PASE; this lab stack is Docker + macOS unixODBC.
 - Changing the SPA port without updating Keycloak client redirect URIs will fail OIDC login.
-- `GET /health` on the API is unauthenticated and used by `pnpm run status`.
-- SQLite file: `apps/backend/data/deltacore.db` (gitignored). Re-seed with `pnpm run init:db` on a new file.
+- `GET /health` on the API is unauthenticated and used by `npm run status`.
+- SQLite file: `apps/backend/data/deltacore.db` (gitignored). Re-seed with `npm run init:db` on a new file.
+
+## Authentication and RBAC
+
+The browser uses the public Keycloak client configured by `VITE_KEYCLOAK_URL`,
+`VITE_KEYCLOAK_REALM`, and `VITE_KEYCLOAK_CLIENT_ID`. The backend validates the
+bearer token against the issuer JWKS configured by `KEYCLOAK_URL` and
+`KEYCLOAK_REALM`; no client secret is required for incoming JWT validation.
+
+On the first valid authenticated request, `SqliteRbacStore.ensureUser()` creates
+the user in `sys_users` and assigns the developer role. Emails or usernames in
+`RBAC_ADMIN_EMAILS` additionally receive the admin role, which has full module
+permissions. A temporary `JWT_CLOCK_TOLERANCE_SECONDS` can absorb IBM i clock
+drift, but the IBM i clock must ultimately be synchronized and the tolerance
+returned to its normal value.

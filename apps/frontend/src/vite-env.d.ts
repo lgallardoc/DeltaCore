@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
+  readonly VITE_DEV_HOST?: string;
   readonly VITE_DEV_PORT?: string;
   readonly VITE_API_PROXY_TARGET?: string;
   readonly VITE_KEYCLOAK_URL?: string;

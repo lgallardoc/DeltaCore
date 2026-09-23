@@ -5,7 +5,7 @@ import { apiClient } from "../../auth/api.client";
 import { useStatusNotification } from "../../components/StatusBanner";
 import { usePermissions } from "../../auth/usePermissions";
 import type { SmartBackState } from "../../navigation/smartBack";
-import { DictionaryPanel } from "../compare/DictionaryPanel";
+import { DictionaryPanel, type DictionaryRecord } from "../compare/DictionaryPanel";
 
 const JOBS_MODULE = "JOBS_CONFIG";
 type DataSource = { id: string; dsn: string; name: string; searchPath: string[] };
@@ -18,10 +18,12 @@ export function DictionaryView() {
   const { canWrite } = usePermissions(JOBS_MODULE);
   const [dsn, setDsn] = useState(restored?.dsn ?? "AZ7DB");
   const [schema, setSchema] = useState(restored?.schema ?? "AZBASWQA");
-  const [table, setTable] = useState(restored?.table ?? "ACCTX");
+  const [table, setTable] = useState(restored?.table ?? "");
   const [autoSaveCatalog, setAutoSaveCatalog] = useState(restored?.autoSaveCatalog ?? false);
   const [sources, setSources] = useState<DataSource[]>([]);
   const [sourcesError, setSourcesError] = useState("");
+  const [localDictionaries, setLocalDictionaries] = useState<DictionaryRecord[]>([]);
+  const [localDictionaryLoading, setLocalDictionaryLoading] = useState(false);
 
   useEffect(() => {
     if (sourcesError) {
@@ -53,6 +55,39 @@ export function DictionaryView() {
       setSchema(selectedSource.searchPath.join(","));
     }
   }, [dsn, sources]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLocalDictionaryLoading(true);
+    void apiClient
+      .get<{ dictionaries: DictionaryRecord[] }>("/dictionary", { params: { dsn } })
+      .then((response) => {
+        if (cancelled) {
+          return;
+        }
+        const dictionaries = response.data.dictionaries ?? [];
+        setLocalDictionaries(dictionaries);
+        setTable(dictionaries.map((item) => item.table).join(","));
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setTable("");
+          setLocalDictionaries([]);
+          setSourcesError(
+            (err as { response?: { data?: { error?: string } } }).response?.data?.error ??
+              (err instanceof Error ? err.message : "No se pudieron cargar los diccionarios locales"),
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLocalDictionaryLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dsn]);
 
   return (
     <section className="space-y-4">
@@ -89,7 +124,11 @@ export function DictionaryView() {
           <select
             className="select select-bordered select-sm"
             value={dsn}
-            onChange={(event) => setDsn(event.target.value)}
+            onChange={(event) => {
+              setDsn(event.target.value);
+              setTable("");
+              setLocalDictionaries([]);
+            }}
           >
             {!sources.some((source) => source.dsn === dsn) ? (
               <option value={dsn}>{dsn} (no persistido)</option>
@@ -127,8 +166,17 @@ export function DictionaryView() {
           <input
             className="input input-bordered input-sm"
             value={table}
+            placeholder={localDictionaryLoading ? "Cargando…" : "Sin diccionario local"}
             onChange={(event) => setTable(event.target.value)}
+            list="local-dictionary-tables"
           />
+          <datalist id="local-dictionary-tables">
+            {table
+              .split(",")
+              .map((item) => item.trim())
+              .filter(Boolean)
+              .map((item) => <option key={item} value={item} />)}
+          </datalist>
         </label>
       </div>
 
@@ -140,10 +188,12 @@ export function DictionaryView() {
 
       <DictionaryPanel
         dsn={dsn}
+        key={dsn}
         schema={schema}
         table={table}
+        localDictionaries={localDictionaries}
         canWrite={canWrite}
-        autoLoad={false}
+        autoLoad
         autoSaveCatalog={autoSaveCatalog}
         showColumns={false}
         dictionaryBackState={{ dsn, schema, table, autoSaveCatalog }}

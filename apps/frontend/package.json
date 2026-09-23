@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@deltacore/shared": "workspace:*",
+    "@deltacore/shared": "file:../../packages/shared",
     "@tanstack/react-query": "^5.90.2",
     "axios": "^1.12.2",
     "keycloak-js": "^26.2.0",

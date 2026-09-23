@@ -36,12 +36,17 @@ export function createApp(deps: {
   deleteDataSource: (id: string) => boolean;
   verifyToken: (token: string) => Promise<AccessIdentity>;
   corsOrigin?: string;
+  frontendDistDir?: string;
 }) {
   const app = express();
   app.use(
     cors({ origin: deps.corsOrigin ?? process.env.CORS_ORIGIN ?? "http://localhost:5173" }),
   );
   app.use(express.json());
+
+  if (deps.frontendDistDir) {
+    app.use(express.static(deps.frontendDistDir));
+  }
 
   app.get("/health", (_req, res) => {
     res.json({ ok: true });
@@ -52,7 +57,10 @@ export function createApp(deps: {
       const identity = await identityFromRequest(req, deps.verifyToken);
       const userId = deps.rbac.ensureUser(identity);
       res.json(deps.rbac.permissionsFor(userId, req.params.moduleName));
-    } catch {
+    } catch (error) {
+      console.warn(
+        `RBAC authorization failed for ${req.params.moduleName}: ${safeAuthError(error)}`,
+      );
       res.status(401).json({
         canView: false,
         canRead: false,
@@ -361,7 +369,28 @@ export function createApp(deps: {
     });
   });
 
+  if (deps.frontendDistDir) {
+    app.use((req, res, next) => {
+      if (req.method !== "GET" || req.path.startsWith("/api")) {
+        next();
+        return;
+      }
+      res.sendFile("index.html", { root: deps.frontendDistDir }, (err) => {
+        if (err && !res.headersSent) {
+          next(err);
+        }
+      });
+    });
+  }
+
   return app;
+}
+
+function safeAuthError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message.replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]");
+  }
+  return "unknown authentication error";
 }
 
 async function withAuth(

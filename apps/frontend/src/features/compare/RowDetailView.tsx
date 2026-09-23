@@ -1,5 +1,6 @@
 import { ArrowLeft, CircleAlert, Clipboard, FileCode2, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import type { CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { RowChange, RowDelta, RowValueMap } from "@deltacore/shared";
 import { apiClient } from "../../auth/api.client";
@@ -174,6 +175,8 @@ export function RowDetailView() {
   }
 }
 
+const KEY_COLUMN_WIDTH = 140;
+
 function ChangedRowsTable({
   rows,
   delta,
@@ -193,6 +196,9 @@ function ChangedRowsTable({
   targetName?: string;
   onGenerateScript: () => void;
 }) {
+  // Key columns (dictionary PK order) are pinned to the left; the rest follow in their original order.
+  const keySet = new Set(delta.keyColumns.map((column) => column.toUpperCase()));
+  const restColumns = delta.comparedColumns.filter((column) => !keySet.has(column.toUpperCase()));
   return (
     <>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -206,11 +212,19 @@ function ChangedRowsTable({
         </button>
       </div>
       <div className="max-h-[32rem] overflow-auto rounded-lg border">
-        <table className="table table-xs table-pin-cols table-pin-rows">
+        <table className="table table-xs table-pin-rows">
         <thead>
           <tr>
-            <th className="fin-table-sticky-key">Clave</th>
-            {delta.comparedColumns.map((column) => (
+            {delta.keyColumns.map((column, index) => (
+              <ColumnHeader
+                key={column}
+                column={column}
+                labels={labels}
+                className="fin-table-sticky-col fin-table-key-col"
+                style={{ "--sticky-left": `${index * KEY_COLUMN_WIDTH}px`, minWidth: KEY_COLUMN_WIDTH, width: KEY_COLUMN_WIDTH } as CSSProperties}
+              />
+            ))}
+            {restColumns.map((column) => (
               <ColumnHeader key={column} column={column} labels={labels} />
             ))}
           </tr>
@@ -220,8 +234,17 @@ function ChangedRowsTable({
             const changed = new Set(row.columns.map((column) => column.column.toUpperCase()));
             return (
               <tr key={index}>
-                <td className="fin-table-sticky-key font-code whitespace-pre-wrap">{keyText(row.key, delta.keyColumns)}</td>
-                {delta.comparedColumns.map((column) => {
+                {delta.keyColumns.map((column, colIndex) => (
+                  <td
+                    key={column}
+                    className="fin-table-sticky-col fin-table-key-col font-code whitespace-pre-wrap"
+                    style={{ "--sticky-left": `${colIndex * KEY_COLUMN_WIDTH}px`, minWidth: KEY_COLUMN_WIDTH, width: KEY_COLUMN_WIDTH } as CSSProperties}
+                  >
+                    <div className="dc-origin whitespace-pre-wrap text-[11px]">{row.sourceRow[column] ?? ""}</div>
+                    <div className="dc-target whitespace-pre-wrap text-[11px]">{row.targetRow[column] ?? ""}</div>
+                  </td>
+                ))}
+                {restColumns.map((column) => {
                   const isChanged = changed.has(column.toUpperCase());
                   return (
                     <td key={column} className={isChanged ? "bg-amber-100" : ""}>
@@ -356,14 +379,20 @@ function SingleSideRowsTable({
   );
 }
 
-function keyText(row: RowValueMap, columns: string[]): string {
-  return columns.map((column) => row[column] ?? "").filter(Boolean).join(" · ");
-}
-
-function ColumnHeader({ column, labels }: { column: string; labels: Map<string, string> }) {
+function ColumnHeader({
+  column,
+  labels,
+  className,
+  style,
+}: {
+  column: string;
+  labels: Map<string, string>;
+  className?: string;
+  style?: CSSProperties;
+}) {
   const description = labels.get(column.toUpperCase())?.trim();
   return (
-    <th title={description ? `${column}: ${description}` : column}>
+    <th className={className} style={style} title={description ? `${column}: ${description}` : column}>
       <div className="font-code">{column}</div>
       {description ? <div className="mt-0.5 whitespace-normal text-[10px] font-normal">{description}</div> : null}
     </th>

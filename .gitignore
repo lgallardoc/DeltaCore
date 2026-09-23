@@ -3,9 +3,12 @@ dist
 build
 *.db
 .npmrc
-package-lock.json
 *.db-journal
 .env
+.env.Deltacore
+.logs/
+.tls/
+.certs/
 .DS_Store
 apps/frontend/dist
 apps/backend/data/

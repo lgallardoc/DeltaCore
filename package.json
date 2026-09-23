@@ -3,21 +3,32 @@
   "private": true,
   "version": "0.1.0",
   "description": "Enterprise DB Metadata Reconciliator",
-  "packageManager": "pnpm@11.21.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "packageManager": "npm@11.12.1",
   "scripts": {
     "start": "bash scripts/start.sh",
     "start:infra": "bash scripts/start.sh --infra-only",
-    "dev": "concurrently -n backend,frontend -c blue,green \"pnpm run dev:backend\" \"pnpm run dev:frontend\"",
-    "dev:backend": "pnpm --filter @deltacore/backend run dev",
-    "dev:frontend": "pnpm --filter @deltacore/frontend run dev",
+    "dev": "concurrently -n backend,frontend -c blue,green \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "npm --prefix apps/backend run dev",
+    "dev:frontend": "npm --prefix apps/frontend run dev",
+    "frontend": "npm run dev:frontend",
+    "start:backend": "npm --prefix apps/backend run start",
+    "start:prod": "pm2 start ecosystem.config.cjs --update-env",
+    "restart:prod": "pm2 restart deltacore --update-env",
+    "stop:prod": "pm2 stop deltacore",
     "status": "bash scripts/status.sh",
     "stop": "bash scripts/stop.sh",
     "stop:apps": "bash scripts/stop.sh --apps-only",
     "stop:sso": "bash scripts/stop.sh --keep-az7 --infra-only",
-    "test": "pnpm -r --if-present run test",
-    "build": "pnpm -r --if-present run build",
+    "test": "npm --prefix apps/backend test",
+    "build": "npm --prefix packages/shared run build && npm --prefix apps/backend run build && npm --prefix apps/frontend run build",
+    "build:itg": "bash scripts/build-itg.sh",
     "cli": "bash scripts/cli.sh",
-    "init:db": "pnpm --filter @deltacore/backend run init:db"
+    "init:db": "npm --prefix apps/backend run init:db",
+    "sync:fdesa01": "bash scripts/sync-fdesa01.sh"
   },
   "engines": {
     "node": ">=20"

@@ -1,12 +1,14 @@
 import axios from "axios";
 import { keycloak } from "./keycloak";
 
+const httpPrefix = import.meta.env.VITE_HTTP_PREFIX?.replace(/\/$/, "") ?? "";
+
 export const apiClient = axios.create({
-  baseURL: "/api",
+  baseURL: `${httpPrefix}/api`,
 });
 
 apiClient.interceptors.request.use(async (config) => {
-  if (keycloak.authenticated && keycloak.isTokenExpired(30)) {
+  if (keycloak.authenticated) {
     await keycloak.updateToken(70);
   }
   if (keycloak.token) {

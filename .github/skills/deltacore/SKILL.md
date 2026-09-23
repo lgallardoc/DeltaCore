@@ -45,14 +45,14 @@ argument-hint: "Describe the DeltaCore feature, failure, or workflow to work on"
 Run focused tests first, then validate the touched packages:
 
 ```bash
-pnpm exec vitest run src/application/ComparisonEngine.spec.ts
-pnpm run build
+npm exec --workspace @deltacore/backend -- vitest run src/application/ComparisonEngine.spec.ts
+npm run build
 ```
 
 For frontend-only work, run:
 
 ```bash
 cd apps/frontend
-pnpm exec tsc -p tsconfig.json --noEmit
-pnpm run build
+npm exec -- tsc -p tsconfig.json --noEmit
+npm run build
 ```
