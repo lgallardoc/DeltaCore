@@ -24,8 +24,6 @@ export type SchemaTableDetail = {
   target: { schema: string; columns: Array<ColumnInfo & { length?: string; scale?: string }> };
 };
 
-const JOBS_MODULE = "JOBS_CONFIG";
-
 type CompareSession = {
   mode: Mode;
   sourceDsn: string;
@@ -39,13 +37,13 @@ export function CompareView() {
   const location = useLocation();
   const restored = (location.state as SmartBackState | null)?.compare as CompareSession | undefined;
   const { notify } = useStatusNotification();
-  const { canWrite } = usePermissions(JOBS_MODULE);
+  const { canWrite, canSave } = usePermissions("COMPARE");
   const [sources, setSources] = useState<DataSource[]>([]);
   const [dictionaries, setDictionaries] = useState<DictionarySummary[]>([]);
   const [selectedTables, setSelectedTables] = useState<string[]>(restored?.selectedTables ?? []);
   const [mode, setMode] = useState<Mode>(restored?.mode ?? "row");
-  const [sourceDsn, setSourceDsn] = useState(restored?.sourceDsn ?? "AZ7DB");
-  const [targetDsn, setTargetDsn] = useState(restored?.targetDsn ?? "AZ7DBPRDCL");
+  const [sourceDsn, setSourceDsn] = useState(restored?.sourceDsn ?? "");
+  const [targetDsn, setTargetDsn] = useState(restored?.targetDsn ?? "");
   const [limit, setLimit] = useState(restored?.limit ?? "10000");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -71,10 +69,16 @@ export function CompareView() {
   }, []);
 
   useEffect(() => {
+    if (!sourceDsn.trim()) {
+      setDictionaries([]);
+      setSelectedTables([]);
+      setTableDescriptions({});
+      return;
+    }
     let cancelled = false;
     void apiClient
       .get<{ dictionaries?: DictionarySummary[] }>("/dictionary", {
-        params: { dsn: sourceDsn },
+        params: { sourceName: sourceDsn },
       })
       .then((sourceResponse) => {
         if (cancelled) {
@@ -107,11 +111,11 @@ export function CompareView() {
   }, [sourceDsn]);
 
   const sourceMeta = useMemo(
-    () => sources.find((item) => item.dsn === sourceDsn),
+    () => sources.find((item) => item.name === sourceDsn),
     [sources, sourceDsn],
   );
   const targetMeta = useMemo(
-    () => sources.find((item) => item.dsn === targetDsn),
+    () => sources.find((item) => item.name === targetDsn),
     [sources, targetDsn],
   );
   const orderedDictionaries = [...dictionaries].sort((left, right) => {
@@ -132,7 +136,7 @@ export function CompareView() {
   };
 
   async function run() {
-    if (!canWrite) return;
+    if (!canWrite || !canSave || !sourceDsn.trim() || !targetDsn.trim()) return;
     setBusy(true);
     setError("");
     setResults([]);
@@ -149,13 +153,13 @@ export function CompareView() {
             const response = await apiClient.post<JobResult>(
               mode === "volume" ? "/jobs/ui/volume-compare" : "/jobs/ui/row-compare",
               mode === "volume" ? {
-                sourceDsn,
-                targetDsn,
+                sourceName: sourceDsn,
+                targetName: targetDsn,
                 table: dictionary.table,
                 sourceSchema: dictionary.schema,
               } : {
-                sourceDsn,
-                targetDsn,
+                sourceName: sourceDsn,
+                targetName: targetDsn,
                 table: dictionary.table,
                 sourceSchema: dictionary.schema,
                 keyColumns: dictionary.keyColumns ?? [],
@@ -199,8 +203,8 @@ export function CompareView() {
     for (const [index, tableName] of tables.entries()) {
       setSchemaProgress({ completed: index, total: tables.length, table: tableName });
       const response = await apiClient.post<JobResult>("/jobs/ui/schema-compare", {
-        sourceDsn,
-        targetDsn,
+        sourceName: sourceDsn,
+        targetName: targetDsn,
         tables: [tableName],
       });
       const tableResult = response.data;
@@ -290,6 +294,7 @@ export function CompareView() {
           ] as const
         ).map(([value, label]) => (
           <button
+            id={`btnView_compare_${value}`}
             key={value}
             type="button"
             className={["tab", mode === value ? "tab-active" : ""].join(" ")}
@@ -308,9 +313,10 @@ export function CompareView() {
             value={sourceDsn}
             onChange={(event) => setSourceDsn(event.target.value)}
           >
+            <option value="">Seleccione DSN origen</option>
             {!sourceMeta ? <option value={sourceDsn}>{sourceDsn} (no persistido)</option> : null}
             {sources.map((item) => (
-              <option key={item.id} value={item.dsn}>
+              <option key={item.id} value={item.name}>
                 {item.name} · {item.dsn}
               </option>
             ))}
@@ -326,9 +332,10 @@ export function CompareView() {
             value={targetDsn}
             onChange={(event) => setTargetDsn(event.target.value)}
           >
+            <option value="">Seleccione DSN destino</option>
             {!targetMeta ? <option value={targetDsn}>{targetDsn} (no persistido)</option> : null}
             {sources.map((item) => (
-              <option key={item.id} value={item.dsn}>
+              <option key={item.id} value={item.name}>
                 {item.name} · {item.dsn}
               </option>
             ))}
@@ -353,12 +360,13 @@ export function CompareView() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-sm font-semibold">Tablas del diccionario local ({dictionaries.length})</h3>
           <div className="flex flex-wrap gap-2">
-            <button type="button" className="btn btn-xs" onClick={() => setSelectedTables(dictionaries.map((dictionary) => dictionary.table))}>Seleccionar todas</button>
-            <button type="button" className="btn btn-xs" onClick={() => setSelectedTables([])}>Limpiar selección</button>
+            <button id="btnView_compare_select_all" type="button" className="btn btn-xs" onClick={() => setSelectedTables(dictionaries.map((dictionary) => dictionary.table))}>Seleccionar todas</button>
+            <button id="btnView_compare_clear" type="button" className="btn btn-xs" onClick={() => setSelectedTables([])}>Limpiar selección</button>
             <button
+              id="btnSave_compare_run"
               type="button"
               className="btn fin-btn-primary btn-sm"
-              disabled={!canWrite || busy || selectedTables.length === 0}
+              disabled={!canWrite || !canSave || busy || !sourceDsn.trim() || !targetDsn.trim() || selectedTables.length === 0}
               onClick={() => void run()}
             >
               <Play size={14} />
@@ -504,7 +512,7 @@ function SchemaComparisonSummary({
                 <td>{row.integrity}%</td>
                 <td className={row.differences > 0 ? "text-amber-700" : "text-emerald-700"}>{row.differences > 0 ? "Con diferencias" : "Íntegro"}</td>
                 <td>
-                  <button type="button" className="btn btn-xs" onClick={() => void openDetail(row.table)} title={`Ver detalle de ${row.table}`}>
+                  <button id={`btnView_compare_detail_${row.table}`} type="button" className="btn btn-xs" onClick={() => void openDetail(row.table)} title={`Ver detalle de ${row.table}`}>
                     Ver
                   </button>
                 </td>
@@ -546,7 +554,7 @@ function SchemaSummaryModal({
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-label={`Detalle de esquema ${table}`}>
       <div className="fin-panel flex max-h-[85vh] w-full max-w-6xl flex-col rounded-lg border p-4">
-        <div className="mb-3 flex items-center justify-between gap-3"><h3 className="text-base font-bold">Detalle de esquema: {table}</h3><button type="button" className="btn btn-sm" onClick={onClose}>Cerrar</button></div>
+        <div className="mb-3 flex items-center justify-between gap-3"><h3 className="text-base font-bold">Detalle de esquema: {table}</h3><button id="btnView_compare_close_schema" type="button" className="btn btn-sm" onClick={onClose}>Cerrar</button></div>
         <div className="min-h-0 overflow-auto rounded border">
           <table className="table table-xs table-pin-rows"><thead><tr><th>Campo</th><th>Tipo origen</th><th>Largo origen</th><th>Decimales origen</th><th>Tipo destino</th><th>Largo destino</th><th>Decimales destino</th></tr></thead><tbody>
             {columns.map((name) => {

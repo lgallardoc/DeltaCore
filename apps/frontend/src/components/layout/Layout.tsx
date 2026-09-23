@@ -1,4 +1,4 @@
-import { BookMarked, ClipboardList, Database, GitCompare } from "lucide-react";
+import { BookMarked, ClipboardList, Database, GitCompare, ShieldCheck, Users } from "lucide-react";
 import { Link, Outlet, useLocation } from "react-router-dom";
 import { Navbar } from "./Navbar";
 
@@ -7,6 +7,8 @@ const NAV_ITEMS = [
   { to: "/dictionary", label: "Diccionario", icon: BookMarked },
   { to: "/catalog", label: "Catálogo", icon: Database },
   { to: "/jobs", label: "Jobs", icon: ClipboardList },
+  { to: "/profiles", label: "Perfiles", icon: ShieldCheck },
+  { to: "/users", label: "Usuarios", icon: Users },
 ] as const;
 
 export function Layout() {

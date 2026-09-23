@@ -120,6 +120,15 @@ button {
   height: 2rem;
 }
 
+button:disabled,
+.btn:disabled {
+  background: #eef1f5 !important;
+  color: #9aa5b5 !important;
+  border-color: #d5dce6 !important;
+  cursor: not-allowed;
+  opacity: 1;
+}
+
 .btn:not(.fin-btn-primary):not(.btn-ghost) {
   background: #ffffff !important;
   color: var(--ink) !important;

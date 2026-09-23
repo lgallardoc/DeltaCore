@@ -33,9 +33,11 @@ const app = createApp({
   listDataSources: (search) => runtime.dataSources.list(search),
   saveDataSource: (input) => runtime.dataSources.save(input),
   deleteDataSource: (id) => runtime.dataSources.remove(id),
+  resolveDataSourceName: (name) => runtime.dataSources.resolveName(name),
   verifyToken: createJwtVerifier(issuer, jwtClockToleranceSeconds),
   corsOrigin,
   frontendDistDir,
+  frontendBasePath: process.env.VITE_HTTP_PREFIX,
 });
 
 const server = httpsCertificateFile && httpsKeyFile

@@ -1,5 +1,7 @@
-import { LogOut } from "lucide-react";
+import { LogOut, Sparkles } from "lucide-react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../../auth/AuthProvider";
+import { CURRENT_RELEASE } from "../../release";
 
 export function Navbar() {
   const { displayName, logout } = useAuth();
@@ -15,8 +17,17 @@ export function Navbar() {
         </h1>
       </div>
       <div className="flex items-center gap-2 pb-0.5">
+        <Link
+          to="/release"
+          className="btn btn-ghost btn-xs gap-1 text-[color:var(--brand)]"
+          aria-label={`Ver cambios de la release ${CURRENT_RELEASE.version}`}
+        >
+          <Sparkles size={13} />
+          v{CURRENT_RELEASE.version}
+        </Link>
         <p className="text-xs font-semibold leading-tight">{displayName}</p>
         <button
+          id="btnView_session_logout"
           type="button"
           className="btn btn-ghost btn-xs"
           onClick={() => void logout()}

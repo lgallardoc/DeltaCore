@@ -45,6 +45,7 @@ export function StatusProvider({ children }: { children: ReactNode }) {
           <Icon size={19} aria-hidden="true" />
           <p className="fin-status-message">{notice.message}</p>
           <button
+            id="btnView_status_close"
             type="button"
             className="fin-status-close"
             aria-label="Cerrar mensaje"

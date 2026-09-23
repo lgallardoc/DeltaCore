@@ -1,4 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import type { ReactNode } from "react";
 import { AuthProvider } from "./auth/AuthProvider";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { apiClient } from "./auth/api.client";
@@ -11,8 +12,9 @@ import { CompareView } from "./features/compare/CompareView";
 import { RowDetailView } from "./features/compare/RowDetailView";
 import { JobDetail } from "./features/jobs/JobDetail";
 import { JobList } from "./features/jobs/JobList";
-
-const JOBS_MODULE = "JOBS_CONFIG";
+import { ReleaseView } from "./features/release/ReleaseView";
+import { ProfileView } from "./features/profiles/ProfileView";
+import { UserView } from "./features/users/UserView";
 
 export function App() {
   const basename = import.meta.env.VITE_HTTP_PREFIX?.replace(/\/$/, "") || undefined;
@@ -24,22 +26,25 @@ export function App() {
           <Routes>
           <Route
             element={
-              <ProtectedRoute moduleName={JOBS_MODULE}>
+              <ProtectedRoute>
                 <Layout />
               </ProtectedRoute>
             }
           >
             <Route path="/" element={<Navigate to="/compare" replace />} />
-            <Route path="/compare" element={<CompareView />} />
-            <Route path="/compare/rows/:kind" element={<RowDetailView />} />
-            <Route path="/dictionary" element={<DictionaryView />} />
-            <Route path="/dictionary/edit" element={<DictionaryEditView />} />
-            <Route path="/catalog" element={<CatalogView />} />
-            <Route path="/jobs" element={<JobList />} />
+            <Route path="/compare" element={<ModuleRoute moduleName="COMPARE"><CompareView /></ModuleRoute>} />
+            <Route path="/compare/rows/:kind" element={<ModuleRoute moduleName="COMPARE"><RowDetailView /></ModuleRoute>} />
+            <Route path="/dictionary" element={<ModuleRoute moduleName="DICTIONARY"><DictionaryView /></ModuleRoute>} />
+            <Route path="/dictionary/edit" element={<ModuleRoute moduleName="DICTIONARY"><DictionaryEditView /></ModuleRoute>} />
+            <Route path="/catalog" element={<ModuleRoute moduleName="CATALOG"><CatalogView /></ModuleRoute>} />
+            <Route path="/jobs" element={<ModuleRoute moduleName="JOBS_CONFIG"><JobList /></ModuleRoute>} />
+            <Route path="/release" element={<ReleaseView />} />
+            <Route path="/profiles" element={<ModuleRoute moduleName="PROFILES"><ProfileView /></ModuleRoute>} />
+            <Route path="/users" element={<ModuleRoute moduleName="USERS"><UserView /></ModuleRoute>} />
             <Route
               path="/jobs/:jobId"
               element={
-                <JobDetail
+                <ModuleRoute moduleName="JOBS_CONFIG"><JobDetail
                   onRunComparison={async (jobId) => {
                     const dsn = import.meta.env.VITE_DB2_ODBC_DSN ?? "AZ7DB";
                     const tables = (import.meta.env.VITE_SCHEMA_COMPARE_TABLES ?? "ACCCR7")
@@ -52,7 +57,7 @@ export function App() {
                       tables,
                     });
                   }}
-                />
+                /></ModuleRoute>
               }
             />
           </Route>
@@ -61,4 +66,8 @@ export function App() {
       </BrowserRouter>
     </AuthProvider>
   );
+}
+
+function ModuleRoute({ moduleName, children }: { moduleName: string; children: ReactNode }) {
+  return <ProtectedRoute moduleName={moduleName}>{children}</ProtectedRoute>;
 }

@@ -34,18 +34,24 @@ export function createApp(deps: {
     searchPath: string[];
   }) => DataSourceListItem;
   deleteDataSource: (id: string) => boolean;
+  resolveDataSourceName: (name: string) => DataSourceListItem | undefined;
   verifyToken: (token: string) => Promise<AccessIdentity>;
   corsOrigin?: string;
   frontendDistDir?: string;
+  frontendBasePath?: string;
 }) {
   const app = express();
+  const frontendBasePath = normalizeBasePath(deps.frontendBasePath);
   app.use(
     cors({ origin: deps.corsOrigin ?? process.env.CORS_ORIGIN ?? "http://localhost:5173" }),
   );
   app.use(express.json());
 
   if (deps.frontendDistDir) {
-    app.use(express.static(deps.frontendDistDir));
+    app.use(frontendBasePath, express.static(deps.frontendDistDir));
+    if (frontendBasePath !== "/") {
+      app.use(express.static(deps.frontendDistDir));
+    }
   }
 
   app.get("/health", (_req, res) => {
@@ -67,6 +73,86 @@ export function createApp(deps: {
         canWrite: false,
       });
     }
+  });
+
+  app.get("/api/admin/rbac", async (req, res) => {
+    await withAdmin(req, res, deps.verifyToken, deps.rbac, async (identity) => {
+      deps.rbac.ensureUser(identity);
+      res.json({
+        users: deps.rbac.listUsers(),
+        roles: deps.rbac.listRoles(),
+        modules: deps.rbac.listModules(),
+      });
+    });
+  });
+
+  app.put("/api/admin/rbac/roles", async (req, res) => {
+    await withAdmin(req, res, deps.verifyToken, deps.rbac, async () => {
+      const body = (req.body ?? {}) as { id?: unknown; name?: unknown };
+      const name = asTrimmed(body.name);
+      if (!name) {
+        res.status(400).json({ error: "name is required" });
+        return;
+      }
+      try {
+        res.json(deps.rbac.saveRole({ id: asTrimmed(body.id) || undefined, name }));
+      } catch (error) {
+        res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+  });
+
+  app.delete("/api/admin/rbac/roles/:roleId", async (req, res) => {
+    await withAdmin(req, res, deps.verifyToken, deps.rbac, async () => {
+      try {
+        if (!deps.rbac.removeRole(req.params.roleId)) {
+          res.status(404).json({ error: "profile not found" });
+          return;
+        }
+        res.json({ ok: true });
+      } catch (error) {
+        res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+  });
+
+  app.put("/api/admin/rbac/roles/:roleId/modules/:moduleId", async (req, res) => {
+    await withAdmin(req, res, deps.verifyToken, deps.rbac, async () => {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      deps.rbac.saveRolePermission({
+        roleId: req.params.roleId,
+        moduleId: req.params.moduleId,
+        canView: Boolean(body.canView),
+        canRead: Boolean(body.canRead),
+        canCreate: Boolean(body.canCreate),
+        canEdit: Boolean(body.canEdit),
+        canDelete: Boolean(body.canDelete),
+        canSave: Boolean(body.canSave),
+      });
+      res.json({ ok: true });
+    });
+  });
+
+  app.put("/api/admin/rbac/users/:userId/roles", async (req, res) => {
+    await withAdmin(req, res, deps.verifyToken, deps.rbac, async () => {
+      const roleIds = parseStringList((req.body as { roleIds?: unknown } | undefined)?.roleIds);
+      try {
+        res.json({ roleIds: deps.rbac.setUserRoles(req.params.userId, roleIds) });
+      } catch (error) {
+        res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+  });
+
+  app.put("/api/admin/rbac/users/:userId", async (req, res) => {
+    await withAdmin(req, res, deps.verifyToken, deps.rbac, async () => {
+      const email = asTrimmed((req.body as { email?: unknown } | undefined)?.email);
+      try {
+        res.json(deps.rbac.updateUser(req.params.userId, email));
+      } catch (error) {
+        res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+      }
+    });
   });
 
   app.get("/api/data-sources", async (req, res) => {
@@ -120,7 +206,7 @@ export function createApp(deps: {
 
   app.get("/api/catalog/schemas", async (req, res) => {
     await withAuth(req, res, deps.verifyToken, async () => {
-      const dsn = queryString(req, "dsn");
+      const dsn = resolveRequestDsn(req, deps);
       if (!dsn) {
         res.status(400).json({ error: "dsn is required" });
         return;
@@ -133,7 +219,7 @@ export function createApp(deps: {
 
   app.get("/api/catalog/tables", async (req, res) => {
     await withAuth(req, res, deps.verifyToken, async () => {
-      const dsn = queryString(req, "dsn");
+      const dsn = resolveRequestDsn(req, deps);
       if (!dsn) {
         res.status(400).json({ error: "dsn is required" });
         return;
@@ -156,7 +242,7 @@ export function createApp(deps: {
 
   app.get("/api/catalog/describe", async (req, res) => {
     await withAuth(req, res, deps.verifyToken, async () => {
-      const dsn = queryString(req, "dsn");
+      const dsn = resolveRequestDsn(req, deps);
       const table = queryString(req, "table");
       if (!dsn) {
         res.status(400).json({ error: "dsn is required" });
@@ -182,16 +268,18 @@ export function createApp(deps: {
     await withAuth(req, res, deps.verifyToken, async () => {
       const table = queryString(req, "table");
       const schema = queryString(req, "schema");
+      const sourceName = queryString(req, "sourceName");
       const dsn = queryString(req, "dsn");
       if (!table) {
-        res.json({ dictionaries: deps.dictionaries.list(dsn) });
+        const resolvedDsn = sourceName ? resolveSource(sourceName, deps).dsn : dsn;
+        res.json({ dictionaries: deps.dictionaries.list(resolvedDsn) });
         return;
       }
       res.json(
         await resolveDictionary(deps.dictionaries, deps.catalog, {
           table,
           schema,
-          dsn,
+          dsn: sourceName ? resolveSource(sourceName, deps).dsn : dsn,
         }),
       );
     });
@@ -205,6 +293,8 @@ export function createApp(deps: {
         tableDescription?: unknown;
         rowCount?: unknown;
         sourceDsn?: unknown;
+        sourceName?: unknown;
+        targetName?: unknown;
         columns?: unknown;
       };
       const schema = asTrimmed(body.schema);
@@ -239,13 +329,14 @@ export function createApp(deps: {
           },
         ];
       });
+      const sourceName = asTrimmed(body.sourceName);
       res.json(
         deps.dictionaries.save({
           schema,
           table,
           tableDescription: asTrimmed(body.tableDescription),
           rowCount: asNonNegativeNumber(body.rowCount),
-          sourceDsn: asTrimmed(body.sourceDsn),
+          sourceDsn: sourceName || asTrimmed(body.sourceDsn),
           columns,
         }),
       );
@@ -273,15 +364,17 @@ export function createApp(deps: {
     });
   });
 
-  app.post("/api/jobs/:jobId/schema-compare", async (req, res) => {
+  app.post(["/api/jobs/:jobId/schema-compare", "/api/jobs/ui/schema-compare"], async (req, res) => {
     await withAuth(req, res, deps.verifyToken, async () => {
       const body = (req.body ?? {}) as {
         sourceDsn?: unknown;
+        sourceName?: unknown;
+        targetName?: unknown;
         targetDsn?: unknown;
         tables?: unknown;
       };
-      const sourceDsn = asTrimmed(body.sourceDsn);
-      const targetDsn = asTrimmed(body.targetDsn);
+      const sourceDsn = asTrimmed(body.sourceDsn) || resolveSource(asTrimmed(body.sourceName), deps).dsn;
+      const targetDsn = asTrimmed(body.targetDsn) || resolveSource(asTrimmed(body.targetName), deps).dsn;
       if (!sourceDsn || !targetDsn) {
         res.status(400).json({ error: "sourceDsn and targetDsn are required" });
         return;
@@ -291,25 +384,27 @@ export function createApp(deps: {
         : [];
       res.json(
         await runSchemaCompareJob(deps.engine, deps.openConnection, {
-          sourceDsn,
-          targetDsn,
+          sourceDsn: resolveSource(asTrimmed(body.sourceName) || sourceDsn, deps).dsn,
+          targetDsn: resolveSource(asTrimmed(body.targetName) || targetDsn, deps).dsn,
           tables,
         }),
       );
     });
   });
 
-  app.post("/api/jobs/:jobId/volume-compare", async (req, res) => {
+  app.post(["/api/jobs/:jobId/volume-compare", "/api/jobs/ui/volume-compare"], async (req, res) => {
     await withAuth(req, res, deps.verifyToken, async () => {
       const body = (req.body ?? {}) as {
         sourceDsn?: unknown;
+        sourceName?: unknown;
+        targetName?: unknown;
         targetDsn?: unknown;
         table?: unknown;
         sourceSchema?: unknown;
         targetSchema?: unknown;
       };
-      const sourceDsn = asTrimmed(body.sourceDsn);
-      const targetDsn = asTrimmed(body.targetDsn);
+      const sourceDsn = asTrimmed(body.sourceDsn) || resolveSource(asTrimmed(body.sourceName), deps).dsn;
+      const targetDsn = asTrimmed(body.targetDsn) || resolveSource(asTrimmed(body.targetName), deps).dsn;
       const table = asTrimmed(body.table);
       if (!sourceDsn || !targetDsn || !table) {
         res.status(400).json({
@@ -319,8 +414,8 @@ export function createApp(deps: {
       }
       res.json(
         await runVolumeCompareJob(deps.engine, deps.openConnection, {
-          sourceDsn,
-          targetDsn,
+          sourceDsn: resolveSource(asTrimmed(body.sourceName) || sourceDsn, deps).dsn,
+          targetDsn: resolveSource(asTrimmed(body.targetName) || targetDsn, deps).dsn,
           patternId: table,
           sourceSchema: asTrimmed(body.sourceSchema) || undefined,
           targetSchema: asTrimmed(body.targetSchema) || undefined,
@@ -329,10 +424,12 @@ export function createApp(deps: {
     });
   });
 
-  app.post("/api/jobs/:jobId/row-compare", async (req, res) => {
+  app.post(["/api/jobs/:jobId/row-compare", "/api/jobs/ui/row-compare"], async (req, res) => {
     await withAuth(req, res, deps.verifyToken, async () => {
       const body = (req.body ?? {}) as {
         sourceDsn?: unknown;
+        sourceName?: unknown;
+        targetName?: unknown;
         targetDsn?: unknown;
         table?: unknown;
         sourceSchema?: unknown;
@@ -342,8 +439,8 @@ export function createApp(deps: {
         limit?: unknown;
         sampleSize?: unknown;
       };
-      const sourceDsn = asTrimmed(body.sourceDsn);
-      const targetDsn = asTrimmed(body.targetDsn);
+      const sourceDsn = asTrimmed(body.sourceDsn) || resolveSource(asTrimmed(body.sourceName), deps).dsn;
+      const targetDsn = asTrimmed(body.targetDsn) || resolveSource(asTrimmed(body.targetName), deps).dsn;
       const table = asTrimmed(body.table);
       if (!sourceDsn || !targetDsn || !table) {
         res.status(400).json({
@@ -356,8 +453,8 @@ export function createApp(deps: {
         deps.dictionaries.get(asTrimmed(body.sourceSchema), table)?.keyColumns;
       res.json(
         await runRowCompareJob(deps.engine, deps.openConnection, {
-          sourceDsn,
-          targetDsn,
+          sourceDsn: resolveSource(asTrimmed(body.sourceName) || sourceDsn, deps).dsn,
+          targetDsn: resolveSource(asTrimmed(body.targetName) || targetDsn, deps).dsn,
           table,
           sourceSchema: asTrimmed(body.sourceSchema) || undefined,
           targetSchema: asTrimmed(body.targetSchema) || undefined,
@@ -371,7 +468,10 @@ export function createApp(deps: {
 
   if (deps.frontendDistDir) {
     app.use((req, res, next) => {
-      if (req.method !== "GET" || req.path.startsWith("/api")) {
+      if (
+        req.method !== "GET" ||
+        req.path.startsWith("/api")
+      ) {
         next();
         return;
       }
@@ -384,6 +484,14 @@ export function createApp(deps: {
   }
 
   return app;
+}
+
+function normalizeBasePath(value?: string): string {
+  const trimmed = value?.trim();
+  if (!trimmed || trimmed === "/") {
+    return "/";
+  }
+  return `/${trimmed.replace(/^\/+|\/+$/g, "")}`;
 }
 
 function safeAuthError(error: unknown): string {
@@ -412,9 +520,47 @@ async function withAuth(
   }
 }
 
+async function withAdmin(
+  req: Request,
+  res: Response,
+  verifyToken: (token: string) => Promise<AccessIdentity>,
+  rbac: SqliteRbacStore,
+  run: (identity: AccessIdentity) => Promise<void>,
+): Promise<void> {
+  try {
+    const identity = await identityFromRequest(req, verifyToken);
+    const userId = rbac.ensureUser(identity);
+    if (!rbac.isAdmin(userId)) {
+      res.status(403).json({ error: "admin profile required" });
+      return;
+    }
+    await run(identity);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(message === "missing bearer token" ? 401 : 500).json({ error: message });
+  }
+}
+
 function queryString(req: Request, name: string): string {
   const value = req.query[name];
   return typeof value === "string" ? value.trim() : "";
+}
+
+function resolveRequestDsn(
+  req: Request,
+  deps: Parameters<typeof createApp>[0],
+): string {
+  const sourceName = queryString(req, "sourceName");
+  const dsn = queryString(req, "dsn");
+  return sourceName ? resolveSource(sourceName, deps).dsn : dsn;
+}
+
+function resolveSource(nameOrDsn: string, deps: Parameters<typeof createApp>[0]): DataSourceListItem {
+  const source = deps.resolveDataSourceName(nameOrDsn);
+  if (source) {
+    return source;
+  }
+  return { id: nameOrDsn, name: nameOrDsn, dsn: nameOrDsn, engine: "db2", searchPath: [] };
 }
 
 function parseSearchPathQuery(req: Request, name: string): string[] | undefined {

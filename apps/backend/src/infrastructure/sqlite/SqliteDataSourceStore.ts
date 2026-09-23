@@ -8,6 +8,14 @@ export type DataSourceMeta = {
   searchPath: string[];
 };
 
+export type DataSourceRecord = {
+  id: string;
+  dsn: string;
+  name: string;
+  engine: EngineType;
+  searchPath: string[];
+};
+
 const DEFAULT_ENGINE: EngineType = "db2";
 
 export function defaultLabSearchPath(): string[] {
@@ -41,6 +49,10 @@ export class SqliteDataSourceStore {
           : DEFAULT_ENGINE,
       searchPath: parseSearchPath(row.search_path),
     };
+  }
+
+  resolveName(name: string): DataSourceRecord | undefined {
+    return this.list().find((source) => source.name === name.trim());
   }
 
   list(search = ""): Array<{
@@ -103,17 +115,17 @@ export class SqliteDataSourceStore {
           .prepare("SELECT id FROM biz_data_sources WHERE id = ? LIMIT 1")
           .get(input.id) as { id: string } | undefined)
       : (this.db
-          .prepare("SELECT id FROM biz_data_sources WHERE odbc_dsn = ? LIMIT 1")
-          .get(dsn) as { id: string } | undefined);
+          .prepare("SELECT id FROM biz_data_sources WHERE name = ? LIMIT 1")
+          .get(name) as { id: string } | undefined);
     const id = existing?.id ?? randomUUID();
     if (existing) {
       this.db
         .prepare(
           `UPDATE biz_data_sources
-           SET name = ?, engine = ?, search_path = ?, is_active = 1
+            SET name = ?, engine = ?, odbc_dsn = ?, search_path = ?, is_active = 1
            WHERE id = ?`,
         )
-        .run(name, engine, JSON.stringify(searchPath), id);
+          .run(name, engine, dsn, JSON.stringify(searchPath), id);
     } else {
       this.db
         .prepare(

@@ -10,7 +10,7 @@ export function JobList() {
       <h1>Jobs</h1>
       <p>status={filters?.status ?? "all"}</p>
       <Link
-        id="btnViewJob"
+        id="btnView_jobs_detail"
         to="/jobs/job-1"
         state={
           {

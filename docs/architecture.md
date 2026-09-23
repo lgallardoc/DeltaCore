@@ -59,7 +59,7 @@ Db2 catalog dialect: `DB2_CATALOG=luw` → `db2/` (SYSCAT, Docker AZ7). `DB2_CAT
 
 Sources are **ODBC DSNs**, not schemas. Origin and target are chosen per job.
 
-1. **SQLite `biz_data_sources`** (`SqliteDataSourceStore`): `name`, `engine`, `odbc_dsn`, `search_path` (JSON array, IBM i `*LIBL*` order), `is_active`. Seed: `sql-dialects/sqlite/seed-lab.sql` (`AZ7DB`, `AZ7DBPRDCL`).
+1. **SQLite `biz_data_sources`** (`SqliteDataSourceStore`): `name`, `engine`, `odbc_dsn`, `search_path` (JSON array, IBM i `*LIBL*` order), `is_active`. `name` (Nombre asignado) is the logical primary key; saving an existing name updates its DSN and metadata. One DSN can have multiple assigned names. Seed: `sql-dialects/sqlite/seed-lab.sql` (`AZ7DB`, `AZ7DBPRDCL`).
 2. **UI / HTTP**: `GET /api/data-sources` feeds Comparar, Catálogo, and Diccionario. The user selects DSN origen and DSN destino on `/compare`.
 3. **CLI**: `--source` / `--target` (default `DB2_ODBC_DSN` or `AZ7DB`; target defaults to source).
 4. **unixODBC**: `scripts/apply-odbc-from-env.sh` writes a single DSN (`DB2_ODBC_DSN`) from `DB2_HOSTNAME`, `DB2_HOST_PORT`, `DB2_NAME`, `DB2_USER`, `DB2_PASSWORD`. Additional DSNs need extra `[section]` entries in `odbc.ini`.

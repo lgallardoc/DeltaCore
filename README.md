@@ -36,7 +36,13 @@ A **source** is an ODBC DSN plus metadata in SQLite. You pick **origen** and **d
 
 1. Register the DSN in unixODBC (`odbc.ini` / IBM CLI). `npm start` only writes the DSN named `DB2_ODBC_DSN`; extra DSNs (for example `AZ7DBPRDCL`) must be added to `odbc.ini` by hand or they will not connect.
 2. Insert (or update) a row in `biz_data_sources` (`odbc_dsn` must match the unixODBC name). After changing the seed file, run `npm run init:db` on a **new** database, or `INSERT`/`UPDATE` in `apps/backend/data/deltacore.db` (`INSERT OR IGNORE` does not update existing rows).
-3. In Comparar, choose the DSN in **DSN origen** and **DSN destino**. In CLI, pass `--source` and `--target`.
+3. In Catálogo, save each catalog using **Nombre asignado** and DSN. **Nombre
+	asignado** is the logical primary key: saving an existing name updates its
+	DSN and metadata, while the same DSN may be registered under different names.
+	In Diccionario and Comparar, select/search by Nombre asignado; the backend
+	resolves it to the physical DSN. In Comparar, choose
+	the DSN in **DSN origen** and **DSN destino**. In CLI, pass `--source` and
+	`--target`.
 
 Schemas for volume/row compare are **not** the DSN: they are `--source-schema` / `--target-schema` (UI: esquema origen / destino).
 

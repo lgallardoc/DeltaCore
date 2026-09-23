@@ -114,6 +114,7 @@ export function CompareResult({
                 </td>
                 <td>
                   <button
+                    id={`btnView_compare_schema_${table.name}`}
                     type="button"
                     className="btn btn-xs"
                     onClick={() => void openSchemaDetail(table.name)}
@@ -263,7 +264,7 @@ function SchemaDetailModal({
       <div className="fin-panel flex max-h-[85vh] w-full max-w-6xl flex-col rounded-lg border p-4">
         <div className="mb-3 flex items-center justify-between gap-3">
           <h3 className="text-base font-bold">Detalle de esquema: {table}</h3>
-          <button type="button" className="btn btn-sm" onClick={onClose} title="Cerrar detalle">
+          <button id="btnView_compare_close" type="button" className="btn btn-sm" onClick={onClose} title="Cerrar detalle">
             <X size={16} />
           </button>
         </div>

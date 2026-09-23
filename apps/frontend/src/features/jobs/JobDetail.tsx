@@ -10,7 +10,7 @@ export function JobDetail({ onRunComparison }: JobDetailProps) {
   const { jobId = "" } = useParams<{ jobId: string }>();
   const location = useLocation();
   const navigate = useNavigate();
-  const { canView, canWrite } = usePermissions("JOBS_CONFIG");
+  const { canView, canWrite, canSave } = usePermissions("JOBS_CONFIG");
   const backState = (location.state as SmartBackState | null) ?? {};
 
   const handleRunComparison = async () => {
@@ -36,15 +36,15 @@ export function JobDetail({ onRunComparison }: JobDetailProps) {
       <h1>Job {jobId}</h1>
       <button
         type="button"
-        id="btnRunComparison"
-        disabled={!canWrite}
+        id="btnSave_jobs_run"
+        disabled={!canWrite || !canSave}
         onClick={() => {
           void handleRunComparison();
         }}
       >
         Run comparison
       </button>
-      <button type="button" id="btnCancelJob" onClick={handleCancelJob}>
+      <button type="button" id="btnView_jobs_back" onClick={handleCancelJob}>
         Back
       </button>
     </section>

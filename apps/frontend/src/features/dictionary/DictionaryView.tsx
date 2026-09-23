@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { apiClient } from "../../auth/api.client";
@@ -7,7 +7,7 @@ import { usePermissions } from "../../auth/usePermissions";
 import type { SmartBackState } from "../../navigation/smartBack";
 import { DictionaryPanel, type DictionaryRecord } from "../compare/DictionaryPanel";
 
-const JOBS_MODULE = "JOBS_CONFIG";
+const DICTIONARY_MODULE = "DICTIONARY";
 type DataSource = { id: string; dsn: string; name: string; searchPath: string[] };
 
 export function DictionaryView() {
@@ -15,7 +15,7 @@ export function DictionaryView() {
   const location = useLocation();
   const backState = (location.state as SmartBackState | null) ?? {};
   const restored = backState.dictionary;
-  const { canWrite } = usePermissions(JOBS_MODULE);
+  const { canWrite, canSave, canDelete, canEdit } = usePermissions(DICTIONARY_MODULE);
   const [dsn, setDsn] = useState(restored?.dsn ?? "AZ7DB");
   const [schema, setSchema] = useState(restored?.schema ?? "AZBASWQA");
   const [table, setTable] = useState(restored?.table ?? "");
@@ -24,6 +24,7 @@ export function DictionaryView() {
   const [sourcesError, setSourcesError] = useState("");
   const [localDictionaries, setLocalDictionaries] = useState<DictionaryRecord[]>([]);
   const [localDictionaryLoading, setLocalDictionaryLoading] = useState(false);
+  const initialSourceLoaded = useRef(false);
 
   useEffect(() => {
     if (sourcesError) {
@@ -36,7 +37,14 @@ export function DictionaryView() {
     try {
       const response = await apiClient
         .get<{ sources: DataSource[] }>("/data-sources");
-      setSources(response.data.sources);
+      const nextSources = response.data.sources;
+      setSources(nextSources);
+      if (!initialSourceLoaded.current && nextSources[0]) {
+        const firstSource = nextSources[0];
+        initialSourceLoaded.current = true;
+        setDsn(firstSource.dsn);
+        setSchema(firstSource.searchPath.join(","));
+      }
     } catch (err) {
       setSourcesError(
         (err as { response?: { data?: { error?: string } } }).response?.data?.error ??
@@ -60,14 +68,14 @@ export function DictionaryView() {
     let cancelled = false;
     setLocalDictionaryLoading(true);
     void apiClient
-      .get<{ dictionaries: DictionaryRecord[] }>("/dictionary", { params: { dsn } })
+      .get<{ dictionaries: DictionaryRecord[] }>("/dictionary", { params: { sourceName: dsn } })
       .then((response) => {
         if (cancelled) {
           return;
         }
         const dictionaries = response.data.dictionaries ?? [];
         setLocalDictionaries(dictionaries);
-        setTable(dictionaries.map((item) => item.table).join(","));
+        setTable("");
       })
       .catch((err) => {
         if (!cancelled) {
@@ -181,7 +189,7 @@ export function DictionaryView() {
       </div>
 
       <div className="flex justify-end">
-        <button type="button" className="btn btn-sm" onClick={() => void loadSources()}>
+        <button id="btnView_dictionary_sources" type="button" className="btn btn-sm" onClick={() => void loadSources()}>
           <RefreshCw size={14} /> Recargar catálogos
         </button>
       </div>
@@ -193,6 +201,9 @@ export function DictionaryView() {
         table={table}
         localDictionaries={localDictionaries}
         canWrite={canWrite}
+        canSave={canSave}
+        canDelete={canDelete}
+        canEdit={canEdit}
         autoLoad
         autoSaveCatalog={autoSaveCatalog}
         showColumns={false}

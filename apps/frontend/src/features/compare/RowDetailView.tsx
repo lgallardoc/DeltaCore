@@ -102,7 +102,7 @@ export function RowDetailView() {
   }
   return (
     <section className="space-y-4">
-      <button type="button" className="btn btn-sm" onClick={returnToCompare}>
+      <button id="btnView_rows_back" type="button" className="btn btn-sm" onClick={returnToCompare}>
         <ArrowLeft size={14} /> Volver
       </button>
       <div>
@@ -207,7 +207,7 @@ function ChangedRowsTable({
           <span className="dc-target font-semibold">Destino ({targetDsn || "no disponible"}{targetName ? ` · ${targetName}` : ""}): segunda línea</span>
           <span className="flex items-center gap-1 font-semibold text-amber-800"><CircleAlert size={14} /> Campo con diferencia</span>
         </div>
-        <button type="button" className="btn btn-sm" onClick={onGenerateScript} disabled={rows.length === 0} title="Generar UPDATE y rollback para el destino">
+        <button id="btnSave_rows_sql" type="button" className="btn btn-sm" onClick={onGenerateScript} disabled={rows.length === 0} title="Generar UPDATE y rollback para el destino">
           <FileCode2 size={14} /> Generar SQL
         </button>
       </div>
@@ -300,7 +300,7 @@ function SqlScriptModal({
             <h3 className="text-base font-bold">Scripts SQL: {targetSchema}.{table}</h3>
             <p className="fin-muted text-xs">Actualización del destino desde el origen y rollback a los valores originales.</p>
           </div>
-          <button type="button" className="btn btn-sm" onClick={onClose} title="Cerrar scripts"><X size={16} /></button>
+          <button id="btnView_rows_close" type="button" className="btn btn-sm" onClick={onClose} title="Cerrar scripts"><X size={16} /></button>
         </div>
         {busy ? <p className="py-8 text-center text-sm">Resolviendo esquema destino...</p> : null}
         {error ? <p className="py-8 text-center text-sm text-red-700">{error}</p> : null}
@@ -318,7 +318,7 @@ function SqlScriptModal({
 function ScriptPanel({ title, script, onCopy }: { title: string; script: string; onCopy: () => void }) {
   return (
     <div className="flex min-h-0 flex-col gap-2">
-      <div className="flex items-center justify-between gap-2"><h4 className="text-sm font-semibold">{title}</h4><button type="button" className="btn btn-xs" onClick={onCopy}><Clipboard size={13} /> Copiar</button></div>
+      <div className="flex items-center justify-between gap-2"><h4 className="text-sm font-semibold">{title}</h4><button id="btnSave_rows_copy" type="button" className="btn btn-xs" onClick={onCopy}><Clipboard size={13} /> Copiar</button></div>
       <textarea className="textarea textarea-bordered font-code min-h-64 w-full resize-none text-xs" value={script} readOnly />
     </div>
   );

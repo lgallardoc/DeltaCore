@@ -49,6 +49,9 @@ type Props = {
   schema: string;
   table: string;
   canWrite: boolean;
+  canSave?: boolean;
+  canDelete?: boolean;
+  canEdit?: boolean;
   autoLoad?: boolean;
   autoSaveCatalog?: boolean;
   showColumns?: boolean;
@@ -63,6 +66,9 @@ export function DictionaryPanel({
   schema,
   table,
   canWrite,
+  canSave = canWrite,
+  canDelete = canWrite,
+  canEdit = canWrite,
   autoLoad = true,
   autoSaveCatalog = false,
   showColumns = true,
@@ -123,7 +129,7 @@ export function DictionaryPanel({
     if (message) {
       notify(
         message,
-        /no se pudo|error|revise|indique|cargue primero|marque al menos/i.test(message)
+        /no se pudo|error|invalid|inválid|identifier|identificador|revise|indique|cargue primero|marque al menos/i.test(message)
           ? "error"
           : "info",
       );
@@ -159,7 +165,7 @@ export function DictionaryPanel({
       .filter(Boolean);
     const tableResponse = await apiClient.get<{ tables: CatalogTable[] }>("/catalog/tables", {
       params: {
-        dsn,
+        sourceName: dsn,
         ...(schema.trim() ? { searchPath: schema.trim() } : {}),
         ...(tableNames.length > 0 ? { table: tableNames.join(",") } : {}),
       },
@@ -172,7 +178,7 @@ export function DictionaryPanel({
     for (const [index, candidate] of candidates.entries()) {
       const response = await apiClient.get(preferCatalog ? "/catalog/describe" : "/dictionary", {
         params: {
-          dsn,
+          sourceName: dsn,
           table: candidate.table,
           schema: candidate.schema,
           ...(schema.trim() ? { schema: candidate.schema } : {}),
@@ -195,7 +201,7 @@ export function DictionaryPanel({
         keyColumns: (response.data.keyColumns ?? []).filter(Boolean),
       };
       if (autoSaveCatalog) {
-        if (!canWrite) {
+        if (!canSave) {
           throw new Error("No tiene permiso para guardar automáticamente.");
         }
         try {
@@ -204,7 +210,7 @@ export function DictionaryPanel({
             table: data.table,
             tableDescription: data.tableDescription,
             rowCount: data.rowCount,
-            sourceDsn: dsn,
+            sourceName: dsn,
             columns: data.columns.map((column) => ({
               ...column,
               isKey: false,
@@ -245,7 +251,7 @@ export function DictionaryPanel({
       if (!preferCatalog && !table.trim()) {
         const response = await apiClient.get<{ dictionaries: DictionaryRecord[] }>(
           "/dictionary",
-          { params: { dsn } },
+          { params: { sourceName: dsn } },
         );
         const saved = response.data.dictionaries ?? [];
         setDescriptions(saved);
@@ -422,7 +428,7 @@ export function DictionaryPanel({
     setMessage("");
     try {
       const response = await apiClient.delete<{ deleted: number }>("/dictionary", {
-        params: { dsn },
+        params: { sourceName: dsn },
       });
       setDescriptions([]);
       setSelectedTableKey("");
@@ -441,7 +447,7 @@ export function DictionaryPanel({
   }
 
   async function save() {
-    if (!canWrite || !activeSchema.trim() || !activeTable.trim()) {
+    if (!canSave || !activeSchema.trim() || !activeTable.trim()) {
       setMessage("Indique esquema y tabla para guardar el diccionario.");
       return;
     }
@@ -462,7 +468,7 @@ export function DictionaryPanel({
         table: activeTable.trim(),
         tableDescription: activeTableDescription,
         rowCount: activeRowCount,
-        sourceDsn: dsn,
+        sourceName: dsn,
         columns: columns.map((column) => ({
           ...column,
           isKey: Boolean(column.isKey),
@@ -510,6 +516,7 @@ export function DictionaryPanel({
         </div>
         <div className="flex flex-wrap gap-2">
           <button
+            id="btnView_dictionary_saved"
             type="button"
             className="btn btn-sm"
             disabled={busy}
@@ -519,6 +526,7 @@ export function DictionaryPanel({
             {busy ? "Cargando…" : "Buscar guardado / catálogo"}
           </button>
           <button
+            id="btnView_dictionary_catalog"
             type="button"
             className="btn btn-sm"
             disabled={busy}
@@ -528,9 +536,10 @@ export function DictionaryPanel({
             Cargar desde catálogo
           </button>
           <button
+            id="btnSave_dictionary_active"
             type="button"
             className="btn fin-btn-primary btn-sm"
-            disabled={!canWrite || busy || columns.length === 0}
+            disabled={!canSave || busy || columns.length === 0}
             onClick={() => void save()}
           >
             <Save size={14} />
@@ -563,9 +572,10 @@ export function DictionaryPanel({
                 onChange={(event) => setTableFilter(event.target.value)}
               />
               <button
+                id="btnDel_dictionary_all"
                 type="button"
                 className="btn btn-sm"
-                disabled={!canWrite || busy}
+                disabled={!canDelete || busy}
                 onClick={() => void deleteAllDictionaries()}
                 title={canWrite ? "Eliminar todos los diccionarios locales del DSN" : "Sin permiso de escritura"}
               >
@@ -611,6 +621,7 @@ export function DictionaryPanel({
                       <td>
                         <div className="flex gap-1">
                           <Link
+                            id={`btnEdit_dictionary_${item.schema}_${item.table}`}
                             className="btn btn-xs"
                             to={`/dictionary/edit?dsn=${encodeURIComponent(dsn)}&schema=${encodeURIComponent(item.schema)}&table=${encodeURIComponent(item.table)}`}
                             state={
@@ -622,14 +633,21 @@ export function DictionaryPanel({
                                   } satisfies SmartBackState)
                                 : undefined
                             }
-                            onClick={() => editDescription(item)}
+                            onClick={(event) => {
+                              if (!canEdit) {
+                                event.preventDefault();
+                                return;
+                              }
+                              editDescription(item);
+                            }}
                           >
                             <Edit3 size={13} /> Editar
                           </Link>
                           <button
+                            id={`btnDel_dictionary_${item.schema}_${item.table}`}
                             type="button"
                             className="btn btn-xs"
-                            disabled={!canWrite || busy}
+                            disabled={!canDelete || busy}
                             onClick={(event) => {
                               event.stopPropagation();
                               void deleteDictionary(item);
@@ -669,7 +687,7 @@ export function DictionaryPanel({
                         type="checkbox"
                         className="checkbox checkbox-sm"
                         checked={Boolean(column.isKey)}
-                        disabled={!canWrite}
+                        disabled={!canEdit}
                         onChange={() => toggleKey(column.columnName)}
                       />
                       PK
@@ -680,7 +698,7 @@ export function DictionaryPanel({
                     <input
                       className="input input-bordered input-sm w-full"
                       value={column.description ?? ""}
-                      disabled={!canWrite}
+                      disabled={!canEdit}
                       onChange={(event) => {
                         const description = event.target.value;
                         publish(

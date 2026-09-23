@@ -8,7 +8,7 @@ export function DictionaryEditView() {
   const location = useLocation();
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const { canWrite } = usePermissions("JOBS_CONFIG");
+  const { canWrite, canSave, canDelete, canEdit } = usePermissions("DICTIONARY");
   const dsn = params.get("dsn") ?? "";
   const schema = params.get("schema") ?? "";
   const table = params.get("table") ?? "";
@@ -27,7 +27,7 @@ export function DictionaryEditView() {
 
   return (
     <section className="space-y-4">
-      <button type="button" className="btn btn-sm" onClick={returnToDictionary}>
+      <button id="btnView_dictionary_back" type="button" className="btn btn-sm" onClick={returnToDictionary}>
         <ArrowLeft size={14} /> Volver
       </button>
       <div>
@@ -39,6 +39,9 @@ export function DictionaryEditView() {
         schema={schema}
         table={table}
         canWrite={canWrite}
+        canSave={canSave}
+        canDelete={canDelete}
+        canEdit={canEdit}
         autoLoad
       />
     </section>

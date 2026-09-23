@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Edit3, Plus, Save, Search, Trash2 } from "lucide-react";
 import { apiClient } from "../../auth/api.client";
 import { useStatusNotification } from "../../components/StatusBanner";
@@ -37,7 +37,8 @@ export function CatalogView() {
   const [payload, setPayload] = useState<CatalogPayload | null>(null);
   const [savingKey, setSavingKey] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
-  const { canWrite, isResolved: permissionsResolved } = usePermissions("JOBS_CONFIG");
+  const initialSourceLoaded = useRef(false);
+  const { canWrite, canSave, canCreate, canEdit, canDelete, isResolved: permissionsResolved } = usePermissions("CATALOG");
 
   useEffect(() => {
     if (error) {
@@ -62,7 +63,16 @@ export function CatalogView() {
       const response = await apiClient.get<{ sources: CatalogSource[] }>("/data-sources", {
         params: search.trim() ? { q: search.trim() } : undefined,
       });
-      setSources(response.data.sources);
+      const nextSources = response.data.sources;
+      setSources(nextSources);
+      if (!initialSourceLoaded.current && !search.trim() && nextSources[0]) {
+        const firstSource = nextSources[0];
+        setSourceId(firstSource.id);
+        setSourceName(firstSource.name);
+        setDsn(firstSource.dsn);
+        setSearchPath(firstSource.searchPath.join(","));
+        initialSourceLoaded.current = true;
+      }
     } catch {
       setSources([]);
     }
@@ -115,7 +125,7 @@ export function CatalogView() {
         table: description.table,
         tableDescription: description.tableDescription,
         rowCount: description.rowCount,
-        sourceDsn: dsn,
+        sourceName: sourceName,
         columns: description.columns.map((column) => ({
           ...column,
           isKey: false,
@@ -292,24 +302,26 @@ export function CatalogView() {
       <div className="flex flex-wrap gap-2">
         <button
           className="btn btn-sm"
-          disabled={busy || !canWrite || !dsn.trim() || !sourceName.trim() || !searchPath.trim()}
+          id="btnSave_catalog_source"
+          disabled={busy || !canWrite || !canSave || !dsn.trim() || !sourceName.trim() || !searchPath.trim()}
           onClick={() => void saveDataSource()}
           title={canWrite ? "Guardar fuente" : "Sin permiso de escritura"}
         >
           <Save size={14} /> Guardar DSN
         </button>
-        <button className="btn btn-sm" disabled={busy} onClick={() => void run("schemas")}>
+        <button id="btnView_catalog_schemas" className="btn btn-sm" disabled={busy} onClick={() => void run("schemas")}>
           <Search size={14} /> list-schemas
         </button>
-        <button className="btn btn-sm" disabled={busy} onClick={() => void run("tables")}>
+        <button id="btnView_catalog_tables" className="btn btn-sm" disabled={busy} onClick={() => void run("tables")}>
           <Search size={14} /> find-table
         </button>
-        <button className="btn btn-sm" disabled={busy} onClick={() => void run("describe")}>
+        <button id="btnView_catalog_describe" className="btn btn-sm" disabled={busy} onClick={() => void run("describe")}>
           <Search size={14} /> describe-table
         </button>
         <button
           className="btn btn-sm"
-          disabled={busy || !canWrite || !dsn.trim()}
+          id="btnDel_catalog_dictionaries"
+          disabled={busy || !canWrite || !canDelete || !dsn.trim()}
           onClick={() => void deleteAllDictionaries()}
           title={canWrite ? "Eliminar todos los diccionarios locales del DSN" : "Sin permiso de escritura"}
         >
@@ -320,6 +332,8 @@ export function CatalogView() {
         <CatalogPayloadView
           payload={payload}
           canWrite={canWrite}
+          canSave={canSave}
+          canDelete={canDelete}
           savingKey={savingKey}
           onSave={saveDescription}
           onDelete={deleteDescription}
@@ -338,7 +352,7 @@ export function CatalogView() {
                 void loadSources(event.target.value);
               }}
             />
-            <button className="btn btn-sm" type="button" onClick={newSource}>
+            <button id="btnNew_catalog_source" className="btn btn-sm" type="button" disabled={!canCreate} onClick={newSource}>
               <Plus size={14} /> Nueva
             </button>
           </div>
@@ -360,10 +374,10 @@ export function CatalogView() {
                   <td className="font-code">{source.dsn}</td>
                   <td className="font-code">{source.searchPath.join(",")}</td>
                   <td className="flex gap-1">
-                    <button className="btn btn-xs" type="button" onClick={() => editSource(source)} title="Editar">
+                    <button id={`btnEdit_catalog_source_${source.id}`} className="btn btn-xs" type="button" disabled={!canEdit} onClick={() => editSource(source)} title="Editar">
                       <Edit3 size={13} />
                     </button>
-                    <button className="btn btn-xs" type="button" onClick={() => void deleteSource(source)} title="Eliminar">
+                    <button id={`btnDel_catalog_source_${source.id}`} className="btn btn-xs" type="button" disabled={!canDelete} onClick={() => void deleteSource(source)} title="Eliminar">
                       <Trash2 size={13} />
                     </button>
                   </td>
@@ -380,12 +394,16 @@ export function CatalogView() {
 function CatalogPayloadView({
   payload,
   canWrite,
+  canSave,
+  canDelete,
   savingKey,
   onSave,
   onDelete,
 }: {
   payload: CatalogPayload;
   canWrite: boolean;
+  canSave: boolean;
+  canDelete: boolean;
   savingKey: string;
   onSave: (description: CatalogDescription) => void;
   onDelete: (description: CatalogDescription) => void;
@@ -420,8 +438,9 @@ function CatalogPayloadView({
                     {columnIndex === 0 ? (
                       <div className="flex gap-1">
                         <button
+                          id={`btnSave_catalog_dictionary_${description.schema}_${description.table}`}
                           className="btn btn-xs"
-                          disabled={!canWrite || savingKey !== ""}
+                          disabled={!canWrite || !canSave || savingKey !== ""}
                           onClick={() => onSave(description)}
                           title={canWrite ? "Guardar diccionario" : "Sin permiso de escritura"}
                         >
@@ -431,8 +450,9 @@ function CatalogPayloadView({
                             : "Guardar"}
                         </button>
                         <button
+                          id={`btnDel_catalog_dictionary_${description.schema}_${description.table}`}
                           className="btn btn-xs"
-                          disabled={!canWrite || savingKey !== ""}
+                          disabled={!canWrite || !canDelete || savingKey !== ""}
                           onClick={() => onDelete(description)}
                           title={canWrite ? "Eliminar diccionario local" : "Sin permiso de escritura"}
                         >
@@ -463,8 +483,9 @@ function CatalogPayloadView({
       <div className="space-y-2">
         <div className="flex justify-end">
           <button
+            id={`btnSave_catalog_dictionary_${description.schema}_${description.table}`}
             className="btn btn-sm"
-            disabled={!canWrite || savingKey !== "" || !description.schema || !description.table}
+            disabled={!canWrite || !canSave || savingKey !== "" || !description.schema || !description.table}
             onClick={() => onSave(description)}
             title={canWrite ? "Guardar diccionario" : "Sin permiso de escritura"}
           >
@@ -474,8 +495,9 @@ function CatalogPayloadView({
               : "Guardar diccionario"}
           </button>
           <button
+            id={`btnDel_catalog_dictionary_${description.schema}_${description.table}`}
             className="btn btn-sm"
-            disabled={!canWrite || savingKey !== "" || !description.schema || !description.table}
+            disabled={!canWrite || !canDelete || savingKey !== "" || !description.schema || !description.table}
             onClick={() => onDelete(description)}
             title={canWrite ? "Eliminar diccionario local" : "Sin permiso de escritura"}
           >
