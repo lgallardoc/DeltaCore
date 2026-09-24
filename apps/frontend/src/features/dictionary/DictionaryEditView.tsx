@@ -43,6 +43,7 @@ export function DictionaryEditView() {
         canDelete={canDelete}
         canEdit={canEdit}
         autoLoad
+        loadOnMount
       />
     </section>
   );

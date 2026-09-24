@@ -53,6 +53,7 @@ type Props = {
   canDelete?: boolean;
   canEdit?: boolean;
   autoLoad?: boolean;
+  loadOnMount?: boolean;
   autoSaveCatalog?: boolean;
   showColumns?: boolean;
   dictionaryBackState?: DictionaryListState;
@@ -70,6 +71,7 @@ export function DictionaryPanel({
   canDelete = canWrite,
   canEdit = canWrite,
   autoLoad = true,
+  loadOnMount = false,
   autoSaveCatalog = false,
   showColumns = true,
   dictionaryBackState,
@@ -376,6 +378,12 @@ export function DictionaryPanel({
     setActiveRowCount(next.rowCount ?? 0);
     onLoaded?.(next);
   }
+
+  useEffect(() => {
+    if (autoLoad && loadOnMount && table.trim()) {
+      void load(false);
+    }
+  }, [autoLoad, loadOnMount, dsn, schema, table]);
 
   function toggleKey(columnName: string) {
     publish(
