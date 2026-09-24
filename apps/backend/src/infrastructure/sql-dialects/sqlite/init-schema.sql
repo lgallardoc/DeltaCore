@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS sys_role_permissions (
   can_edit INTEGER NOT NULL DEFAULT 0,
   can_delete INTEGER NOT NULL DEFAULT 0,
   can_save INTEGER NOT NULL DEFAULT 0,
+  can_run INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (role_id, module_id)
 );
 

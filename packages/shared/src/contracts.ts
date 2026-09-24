@@ -17,6 +17,7 @@ export interface RBACPermission {
   canEdit: boolean;
   canDelete: boolean;
   canSave: boolean;
+  canRun: boolean;
 }
 
 export type RowValueMap = Record<string, string>;

@@ -12,6 +12,7 @@ type PermissionRecord = {
   canEdit: boolean;
   canDelete: boolean;
   canSave: boolean;
+  canRun: boolean;
 };
 
 export class SqliteRbacStore {
@@ -44,7 +45,7 @@ export class SqliteRbacStore {
       .all() as Array<{ id: string; name: string }>;
     const permissionQuery = this.db.prepare(
       `SELECT m.id AS module_id, m.name AS module_name,
-         p.can_view, p.can_read, p.can_create, p.can_edit, p.can_delete, p.can_save
+         p.can_view, p.can_read, p.can_create, p.can_edit, p.can_delete, p.can_save, p.can_run
        FROM sys_modules m
        LEFT JOIN sys_role_permissions p ON p.module_id = m.id AND p.role_id = ?
        ORDER BY m.name`,
@@ -61,6 +62,7 @@ export class SqliteRbacStore {
           canEdit: Boolean(permission.can_edit),
           canDelete: Boolean(permission.can_delete),
           canSave: Boolean(permission.can_save),
+          canRun: Boolean(permission.can_run),
         }),
       ),
     }));
@@ -114,20 +116,22 @@ export class SqliteRbacStore {
     canEdit: boolean;
     canDelete: boolean;
     canSave: boolean;
+    canRun: boolean;
   }): void {
     this.db
       .prepare(
         `INSERT INTO sys_role_permissions
-           (role_id, module_id, can_view, can_read, can_write, can_create, can_edit, can_delete, can_save)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           (role_id, module_id, can_view, can_read, can_write, can_create, can_edit, can_delete, can_save, can_run)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(role_id, module_id) DO UPDATE SET
            can_view = excluded.can_view,
            can_read = excluded.can_read,
-           can_write = excluded.can_view OR excluded.can_create OR excluded.can_edit OR excluded.can_delete OR excluded.can_save,
+           can_write = excluded.can_view OR excluded.can_create OR excluded.can_edit OR excluded.can_delete OR excluded.can_save OR excluded.can_run,
            can_create = excluded.can_create,
            can_edit = excluded.can_edit,
            can_delete = excluded.can_delete,
-           can_save = excluded.can_save`,
+           can_save = excluded.can_save,
+           can_run = excluded.can_run`,
       )
       .run(
         input.roleId,
@@ -139,6 +143,7 @@ export class SqliteRbacStore {
         Number(input.canEdit),
         Number(input.canDelete),
         Number(input.canSave),
+        Number(input.canRun),
       );
   }
 
@@ -249,6 +254,35 @@ export class SqliteRbacStore {
   }
 
   permissionsFor(userId: string, moduleName: string): RBACPermission {
+    const isReadonly = this.db
+      .prepare(
+        `SELECT 1 FROM sys_user_roles ur
+         JOIN sys_roles r ON r.id = ur.role_id
+         WHERE ur.user_id = ? AND r.name = 'solo lectura' LIMIT 1`,
+      )
+      .get(userId);
+    if (isReadonly) {
+      const canView = moduleName !== "PROFILES" && moduleName !== "USERS";
+      const readonlyPermission = this.db
+        .prepare(
+          `SELECT MAX(p.can_run) AS can_run
+           FROM sys_user_roles ur
+           JOIN sys_role_permissions p ON p.role_id = ur.role_id
+           JOIN sys_modules m ON m.id = p.module_id
+           WHERE ur.user_id = ? AND m.name = ?`,
+        )
+        .get(userId, moduleName) as { can_run: number | null } | undefined;
+      return {
+        canView,
+        canRead: canView,
+        canWrite: false,
+        canCreate: false,
+        canEdit: false,
+        canDelete: false,
+        canSave: false,
+        canRun: Boolean(readonlyPermission?.can_run),
+      };
+    }
     const isAdmin = this.db
       .prepare(
         `SELECT 1
@@ -267,6 +301,7 @@ export class SqliteRbacStore {
         canEdit: true,
         canDelete: true,
         canSave: true,
+        canRun: true,
       };
     }
 
@@ -279,7 +314,8 @@ export class SqliteRbacStore {
            MAX(p.can_create) AS can_create,
            MAX(p.can_edit) AS can_edit,
            MAX(p.can_delete) AS can_delete,
-           MAX(p.can_save) AS can_save
+           MAX(p.can_save) AS can_save,
+           MAX(p.can_run) AS can_run
          FROM sys_user_roles ur
          JOIN sys_role_permissions p ON p.role_id = ur.role_id
          JOIN sys_modules m ON m.id = p.module_id
@@ -294,6 +330,7 @@ export class SqliteRbacStore {
           can_edit: number | null;
           can_delete: number | null;
           can_save: number | null;
+          can_run: number | null;
         }
       | undefined;
 
@@ -305,6 +342,7 @@ export class SqliteRbacStore {
       canEdit: Boolean(row?.can_edit),
       canDelete: Boolean(row?.can_delete),
       canSave: Boolean(row?.can_save),
+      canRun: Boolean(row?.can_run),
     };
   }
 

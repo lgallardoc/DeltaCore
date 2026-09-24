@@ -12,13 +12,13 @@ INSERT OR IGNORE INTO sys_modules (id, name, path) VALUES ('mod-users', 'USERS',
 
 INSERT OR IGNORE INTO sys_role_permissions (
   role_id, module_id, can_view, can_read, can_write,
-  can_create, can_edit, can_delete, can_save
+  can_create, can_edit, can_delete, can_save, can_run
 )
-SELECT 'role-developer', id, 1, 1, 1, 1, 1, 1, 1 FROM sys_modules;
+SELECT 'role-developer', id, 1, 1, 1, 1, 1, 1, 1, 1 FROM sys_modules;
 
 INSERT OR IGNORE INTO sys_role_permissions (
   role_id, module_id, can_view, can_read, can_write,
-  can_create, can_edit, can_delete, can_save
+  can_create, can_edit, can_delete, can_save, can_run
 )
-SELECT 'role-readonly', id, 1, 1, 0, 0, 0, 0, 0 FROM sys_modules
+SELECT 'role-readonly', id, 1, 1, 0, 0, 0, 0, 0, 0 FROM sys_modules
 WHERE name NOT IN ('PROFILES', 'USERS');

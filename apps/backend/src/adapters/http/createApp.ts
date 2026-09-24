@@ -1,4 +1,4 @@
-import type { IComparisonEngine, IOdbcConnection } from "@deltacore/shared";
+import type { IComparisonEngine, IOdbcConnection, RBACPermission } from "@deltacore/shared";
 import cors from "cors";
 import express, { type Request, type Response } from "express";
 import type { AccessIdentity } from "../../domain/AccessIdentity.js";
@@ -71,6 +71,7 @@ export function createApp(deps: {
         canView: false,
         canRead: false,
         canWrite: false,
+        canRun: false,
       });
     }
   });
@@ -128,6 +129,7 @@ export function createApp(deps: {
         canEdit: Boolean(body.canEdit),
         canDelete: Boolean(body.canDelete),
         canSave: Boolean(body.canSave),
+        canRun: Boolean(body.canRun),
       });
       res.json({ ok: true });
     });
@@ -156,13 +158,13 @@ export function createApp(deps: {
   });
 
   app.get("/api/data-sources", async (req, res) => {
-    await withAuth(req, res, deps.verifyToken, async () => {
+    await withRbac(req, res, deps.verifyToken, deps.rbac, ["CATALOG", "COMPARE", "DICTIONARY"], "canRead", async () => {
       res.json({ sources: deps.listDataSources(queryString(req, "q")) });
     });
   });
 
   app.put("/api/data-sources", async (req, res) => {
-    await withAuth(req, res, deps.verifyToken, async () => {
+    await withRbac(req, res, deps.verifyToken, deps.rbac, "CATALOG", ["canWrite", "canSave"], async () => {
       const body = (req.body ?? {}) as {
         name?: unknown;
         dsn?: unknown;
@@ -195,7 +197,7 @@ export function createApp(deps: {
   });
 
   app.delete("/api/data-sources/:id", async (req, res) => {
-    await withAuth(req, res, deps.verifyToken, async () => {
+    await withRbac(req, res, deps.verifyToken, deps.rbac, "CATALOG", "canDelete", async () => {
       if (!deps.deleteDataSource(req.params.id)) {
         res.status(404).json({ error: "data source not found" });
         return;
@@ -205,7 +207,7 @@ export function createApp(deps: {
   });
 
   app.get("/api/catalog/schemas", async (req, res) => {
-    await withAuth(req, res, deps.verifyToken, async () => {
+    await withRbac(req, res, deps.verifyToken, deps.rbac, ["CATALOG", "COMPARE"], "canRead", async () => {
       const dsn = resolveRequestDsn(req, deps);
       if (!dsn) {
         res.status(400).json({ error: "dsn is required" });
@@ -218,7 +220,7 @@ export function createApp(deps: {
   });
 
   app.get("/api/catalog/tables", async (req, res) => {
-    await withAuth(req, res, deps.verifyToken, async () => {
+    await withRbac(req, res, deps.verifyToken, deps.rbac, ["CATALOG", "COMPARE"], "canRead", async () => {
       const dsn = resolveRequestDsn(req, deps);
       if (!dsn) {
         res.status(400).json({ error: "dsn is required" });
@@ -241,7 +243,7 @@ export function createApp(deps: {
   });
 
   app.get("/api/catalog/describe", async (req, res) => {
-    await withAuth(req, res, deps.verifyToken, async () => {
+    await withRbac(req, res, deps.verifyToken, deps.rbac, ["CATALOG", "COMPARE"], "canRead", async () => {
       const dsn = resolveRequestDsn(req, deps);
       const table = queryString(req, "table");
       if (!dsn) {
@@ -265,7 +267,7 @@ export function createApp(deps: {
   });
 
   app.get("/api/dictionary", async (req, res) => {
-    await withAuth(req, res, deps.verifyToken, async () => {
+    await withRbac(req, res, deps.verifyToken, deps.rbac, ["DICTIONARY", "COMPARE"], "canRead", async () => {
       const table = queryString(req, "table");
       const schema = queryString(req, "schema");
       const sourceName = queryString(req, "sourceName");
@@ -286,7 +288,7 @@ export function createApp(deps: {
   });
 
   app.put("/api/dictionary", async (req, res) => {
-    await withAuth(req, res, deps.verifyToken, async () => {
+    await withRbac(req, res, deps.verifyToken, deps.rbac, ["DICTIONARY", "CATALOG"], "canSave", async () => {
       const body = (req.body ?? {}) as {
         schema?: unknown;
         table?: unknown;
@@ -344,7 +346,7 @@ export function createApp(deps: {
   });
 
   app.delete("/api/dictionary/:schema/:table", async (req, res) => {
-    await withAuth(req, res, deps.verifyToken, async () => {
+    await withRbac(req, res, deps.verifyToken, deps.rbac, ["DICTIONARY", "CATALOG"], "canDelete", async () => {
       if (!deps.dictionaries.delete(req.params.schema, req.params.table)) {
         res.status(404).json({ error: "dictionary not found" });
         return;
@@ -354,7 +356,7 @@ export function createApp(deps: {
   });
 
   app.delete("/api/dictionary", async (req, res) => {
-    await withAuth(req, res, deps.verifyToken, async () => {
+    await withRbac(req, res, deps.verifyToken, deps.rbac, ["DICTIONARY", "CATALOG"], "canDelete", async () => {
       const dsn = queryString(req, "dsn");
       if (!dsn) {
         res.status(400).json({ error: "dsn is required" });
@@ -365,7 +367,7 @@ export function createApp(deps: {
   });
 
   app.post(["/api/jobs/:jobId/schema-compare", "/api/jobs/ui/schema-compare"], async (req, res) => {
-    await withAuth(req, res, deps.verifyToken, async () => {
+    await withRbac(req, res, deps.verifyToken, deps.rbac, "COMPARE", "canRun", async () => {
       const body = (req.body ?? {}) as {
         sourceDsn?: unknown;
         sourceName?: unknown;
@@ -393,7 +395,7 @@ export function createApp(deps: {
   });
 
   app.post(["/api/jobs/:jobId/volume-compare", "/api/jobs/ui/volume-compare"], async (req, res) => {
-    await withAuth(req, res, deps.verifyToken, async () => {
+    await withRbac(req, res, deps.verifyToken, deps.rbac, "COMPARE", "canRun", async () => {
       const body = (req.body ?? {}) as {
         sourceDsn?: unknown;
         sourceName?: unknown;
@@ -425,7 +427,7 @@ export function createApp(deps: {
   });
 
   app.post(["/api/jobs/:jobId/row-compare", "/api/jobs/ui/row-compare"], async (req, res) => {
-    await withAuth(req, res, deps.verifyToken, async () => {
+    await withRbac(req, res, deps.verifyToken, deps.rbac, "COMPARE", "canRun", async () => {
       const body = (req.body ?? {}) as {
         sourceDsn?: unknown;
         sourceName?: unknown;
@@ -517,6 +519,40 @@ async function withAuth(
       return;
     }
     res.status(500).json({ error: message });
+  }
+}
+
+type RbacAction = keyof Pick<
+  RBACPermission,
+  "canRead" | "canWrite" | "canCreate" | "canEdit" | "canDelete" | "canSave" | "canRun"
+>;
+
+async function withRbac(
+  req: Request,
+  res: Response,
+  verifyToken: (token: string) => Promise<AccessIdentity>,
+  rbac: SqliteRbacStore,
+  moduleNames: string | string[],
+  actions: RbacAction | RbacAction[],
+  run: () => Promise<void>,
+): Promise<void> {
+  try {
+    const identity = await identityFromRequest(req, verifyToken);
+    const userId = rbac.ensureUser(identity);
+    const modules = Array.isArray(moduleNames) ? moduleNames : [moduleNames];
+    const requiredActions = Array.isArray(actions) ? actions : [actions];
+    const authorized = modules.some((moduleName) => {
+      const permission = rbac.permissionsFor(userId, moduleName);
+      return requiredActions.every((action) => permission[action]);
+    });
+    if (!authorized) {
+      res.status(403).json({ error: `${modules.join(" or ")} permission required` });
+      return;
+    }
+    await run();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(message === "missing bearer token" ? 401 : 500).json({ error: message });
   }
 }
 

@@ -299,6 +299,36 @@ The summary displays one row per table: table name, description, integrity perce
 
 **Ver** opens a modal that fetches `GET /api/catalog/describe` from both DSNs on demand. It shows field descriptions (origin first, target as fallback), data types, lengths, decimal scales, and the field comparison status.
 
+### RBAC actions
+
+Each module profile stores independent `canView`, `canRead`, `canCreate`,
+`canEdit`, `canDelete`, `canSave`, and `canRun` actions in SQLite. The
+frontend disables controls with the corresponding action and the backend
+enforces the same permission, returning `403` when an authenticated user lacks
+the required module action.
+
+`canRun` covers comparisons, jobs, and SQL generation from row details.
+`canSave` covers persistence of profiles, users, sources, and dictionaries.
+The `solo lectura` profile keeps `canRun` when explicitly enabled, while its
+write actions remain disabled. Shared endpoints accept the owning module from
+`COMPARE`, `DICTIONARY`, or `CATALOG` so granular profiles remain usable.
+
+### fdesa01 homologation
+
+Build the ITG artifacts before synchronizing and then validate the deployed
+health endpoint, SPA, backend runtime, and SQLite migration:
+
+```bash
+npm run build:itg
+npm run sync:fdesa01
+ssh cllagc@fdesa01.falabella.cl 'cd /nodeapp/DeltaCore && npm run init:db'
+curl -fsS https://fdesa01.falabella.cl/deltacore/health
+ssh cllagc@fdesa01.falabella.cl 'cd /nodeapp/DeltaCore && test -f apps/frontend/dist/index.html && test -f apps/backend/dist/adapters/http/server.js && test -d apps/backend/data'
+```
+
+`npm run init:db` is idempotent: it applies missing RBAC columns such as
+`sys_role_permissions.can_run` and preserves existing `biz_*` data.
+
 ### Volume and row comparison UI
 
 Volume returns a consolidated table with one row per selected table: description, origin and target record counts, record delta, origin and target physical sizes, and size delta. IBM i physical size comes from `QSYS2.SYSTABLESTAT.DATA_SIZE` and is presented using Chilean numeric formatting.

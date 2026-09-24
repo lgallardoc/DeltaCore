@@ -37,7 +37,7 @@ export function CompareView() {
   const location = useLocation();
   const restored = (location.state as SmartBackState | null)?.compare as CompareSession | undefined;
   const { notify } = useStatusNotification();
-  const { canWrite, canSave } = usePermissions("COMPARE");
+  const { canRun } = usePermissions("COMPARE");
   const [sources, setSources] = useState<DataSource[]>([]);
   const [dictionaries, setDictionaries] = useState<DictionarySummary[]>([]);
   const [selectedTables, setSelectedTables] = useState<string[]>(restored?.selectedTables ?? []);
@@ -136,7 +136,7 @@ export function CompareView() {
   };
 
   async function run() {
-    if (!canWrite || !canSave || !sourceDsn.trim() || !targetDsn.trim()) return;
+    if (!canRun || !sourceDsn.trim() || !targetDsn.trim()) return;
     setBusy(true);
     setError("");
     setResults([]);
@@ -366,7 +366,7 @@ export function CompareView() {
               id="btnSave_compare_run"
               type="button"
               className="btn fin-btn-primary btn-sm"
-              disabled={!canWrite || !canSave || busy || !sourceDsn.trim() || !targetDsn.trim() || selectedTables.length === 0}
+              disabled={!canRun || busy || !sourceDsn.trim() || !targetDsn.trim() || selectedTables.length === 0}
               onClick={() => void run()}
             >
               <Play size={14} />

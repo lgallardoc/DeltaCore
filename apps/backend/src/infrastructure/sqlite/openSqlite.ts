@@ -11,7 +11,7 @@ export function openSqlite(): DatabaseSync {
   const db = new DatabaseSync(path.join(dataDir, "deltacore.db"));
   db.exec("PRAGMA foreign_keys = ON");
   db.exec(readFileSync(path.resolve(here, "../sql-dialects/sqlite/init-schema.sql"), "utf8"));
-  for (const column of ["can_create", "can_edit", "can_delete", "can_save"]) {
+  for (const column of ["can_create", "can_edit", "can_delete", "can_save", "can_run"]) {
     try {
       db.exec(`ALTER TABLE sys_role_permissions ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`);
     } catch {
@@ -22,9 +22,14 @@ export function openSqlite(): DatabaseSync {
   db.exec(
     `UPDATE sys_role_permissions
      SET can_view = 0, can_read = 0, can_write = 0,
-         can_create = 0, can_edit = 0, can_delete = 0, can_save = 0
+       can_create = 0, can_edit = 0, can_delete = 0, can_save = 0, can_run = 0
      WHERE role_id = 'role-readonly'
        AND module_id IN (SELECT id FROM sys_modules WHERE name IN ('PROFILES', 'USERS'))`,
+  );
+  db.exec(
+    `UPDATE sys_role_permissions
+     SET can_run = 1
+     WHERE role_id IN ('role-admin', 'role-developer')`,
   );
   db.exec(
     `DELETE FROM sys_user_roles

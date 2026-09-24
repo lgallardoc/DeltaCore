@@ -11,6 +11,7 @@ const DENY: RBACPermission = {
   canEdit: false,
   canDelete: false,
   canSave: false,
+  canRun: false,
 };
 
 export function usePermissions(moduleName?: string): RBACPermission & {

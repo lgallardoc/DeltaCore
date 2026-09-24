@@ -161,3 +161,24 @@ administrator can later assign exactly one profile from **Usuarios**. The
 delete, or save; menu entries without `canView` are hidden. A temporary
 `JWT_CLOCK_TOLERANCE_SECONDS` can absorb IBM i clock drift, but the IBM i clock
 must ultimately be synchronized and the tolerance returned to its normal value.
+
+### Permission matrix
+
+`sys_role_permissions` stores independent actions for every module:
+`canView` controls navigation, `canRead` controls queries, `canCreate`
+creates resources, `canEdit` updates resources, `canDelete` removes resources,
+`canSave` persists forms or dictionary changes, and `canRun` executes
+comparisons, jobs, or generates SQL from comparison details. `ProfileView`
+exposes all seven actions and the HTTP adapter enforces them instead of relying
+only on disabled frontend controls.
+
+The `solo lectura` role has no write permissions but may receive `canRun` when
+that action is explicitly enabled in the profile. Shared resources resolve the
+owning module from `COMPARE`, `DICTIONARY`, and `CATALOG`, so granular profiles
+remain valid across dictionary and catalog workflows.
+
+For IBM i homologation, deploy the built artifacts, run the idempotent
+`npm run init:db` remotely, and verify the health endpoint, the static SPA,
+the compiled backend, and the `sys_role_permissions.can_run` migration. The
+database check must preserve existing `biz_*` data while applying missing RBAC
+columns and built-in role defaults.

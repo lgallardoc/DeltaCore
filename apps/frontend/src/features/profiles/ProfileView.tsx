@@ -14,6 +14,7 @@ type Permission = {
   canEdit: boolean;
   canDelete: boolean;
   canSave: boolean;
+  canRun: boolean;
 };
 type Role = { id: string; name: string; permissions: Permission[] };
 type Module = { id: string; name: string; path: string };
@@ -24,6 +25,7 @@ const ACTIONS = [
   ["canEdit", "Edit"],
   ["canDelete", "Delete"],
   ["canSave", "Save"],
+  ["canRun", "Run"],
 ] as const;
 
 export function ProfileView() {
@@ -144,10 +146,10 @@ export function ProfileView() {
                 <thead><tr><th>Módulo</th>{ACTIONS.map(([, label]) => <th key={label}>{label}</th>)}</tr></thead>
                 <tbody>{modules.map((module) => {
                   const permission = selectedRole.permissions.find((item) => item.moduleId === module.id) ?? {
-                    moduleId: module.id, moduleName: module.name, canView: false, canRead: false, canCreate: false, canEdit: false, canDelete: false, canSave: false,
+                    moduleId: module.id, moduleName: module.name, canView: false, canRead: false, canCreate: false, canEdit: false, canDelete: false, canSave: false, canRun: false,
                   };
                   return <tr key={module.id}><td>{module.name}</td>{ACTIONS.map(([action, label]) => <td key={action}>
-                    <input id={`btn${label}_profiles_${selectedRole.id}_${module.id}`} type="checkbox" className="checkbox checkbox-sm" checked={permission[action]} onChange={() => void togglePermission(permission, action)} />
+                    <input id={`btn${label}_profiles_${selectedRole.id}_${module.id}`} type="checkbox" className="checkbox checkbox-sm" checked={permission[action]} disabled={!canEdit || !canSave} onChange={() => void togglePermission(permission, action)} />
                   </td>)}</tr>;
                 })}</tbody>
               </table>
