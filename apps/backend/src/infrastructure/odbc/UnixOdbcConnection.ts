@@ -1,4 +1,4 @@
-import odbc from "odbc";
+import type odbc from "odbc";
 import type { EngineType, IOdbcConnection } from "@deltacore/shared";
 import {
   applyOdbcRuntimeEnv,
@@ -45,6 +45,7 @@ export async function openUnixOdbcConnection(
   searchPath: string[],
 ): Promise<UnixOdbcConnection> {
   applyOdbcRuntimeEnv();
+  const odbcModule = await import("odbc");
   const driver = ibmCliDriverPath();
   const attempts = [
     { label: `DSN ${dsn}`, connectionString: `DSN=${dsn};` },
@@ -56,7 +57,7 @@ export async function openUnixOdbcConnection(
   const failures: string[] = [];
   for (const attempt of attempts) {
     try {
-      const conn = await odbc.connect(attempt.connectionString);
+      const conn = await odbcModule.default.connect(attempt.connectionString);
       return new UnixOdbcConnection(conn, engine, dsn, searchPath);
     } catch (error) {
       const detail = formatOdbcError(error);
