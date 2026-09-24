@@ -68,7 +68,7 @@ export function DictionaryView() {
     let cancelled = false;
     setLocalDictionaryLoading(true);
     void apiClient
-      .get<{ dictionaries: DictionaryRecord[] }>("/dictionary", { params: { sourceName: dsn } })
+      .get<{ dictionaries: DictionaryRecord[] }>("/dictionary", { params: {} })
       .then((response) => {
         if (cancelled) {
           return;

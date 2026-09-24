@@ -76,10 +76,9 @@ export function CompareView() {
       return;
     }
     let cancelled = false;
-    const selectedSource = sources.find((source) => source.name === sourceDsn);
     void apiClient
       .get<{ dictionaries?: DictionarySummary[] }>("/dictionary", {
-        params: { dsn: selectedSource?.dsn ?? sourceDsn },
+        params: {},
       })
       .then((sourceResponse) => {
         if (cancelled) {
