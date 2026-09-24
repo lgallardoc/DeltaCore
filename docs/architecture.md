@@ -177,8 +177,11 @@ that action is explicitly enabled in the profile. Shared resources resolve the
 owning module from `COMPARE`, `DICTIONARY`, and `CATALOG`, so granular profiles
 remain valid across dictionary and catalog workflows.
 
-For IBM i homologation, deploy the built artifacts, run the idempotent
-`npm run init:db` remotely, and verify the health endpoint, the static SPA,
-the compiled backend, and the `sys_role_permissions.can_run` migration. The
+For IBM i homologation, deploy the built artifacts, run
+`node apps/backend/dist/infrastructure/sqlite/init-cli.js` remotely to stage
+the schema, and restart the compiled backend. The backend applies conditional
+SQLite migrations such as `sys_role_permissions.can_run` when it opens the
+database. Verify the health endpoint, static SPA, compiled backend, and
+`PRAGMA table_info(sys_role_permissions)` with the remote `sqlite3` CLI. The
 database check must preserve existing `biz_*` data while applying missing RBAC
 columns and built-in role defaults.

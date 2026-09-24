@@ -321,13 +321,16 @@ health endpoint, SPA, backend runtime, and SQLite migration:
 ```bash
 npm run build:itg
 npm run sync:fdesa01
-ssh cllagc@fdesa01.falabella.cl 'cd /nodeapp/DeltaCore && npm run init:db'
+ssh cllagc@fdesa01.falabella.cl 'cd /nodeapp/DeltaCore && node apps/backend/dist/infrastructure/sqlite/init-cli.js'
 curl -fsS https://fdesa01.falabella.cl/deltacore/health
 ssh cllagc@fdesa01.falabella.cl 'cd /nodeapp/DeltaCore && test -f apps/frontend/dist/index.html && test -f apps/backend/dist/adapters/http/server.js && test -d apps/backend/data'
 ```
 
-`npm run init:db` is idempotent: it applies missing RBAC columns such as
-`sys_role_permissions.can_run` and preserves existing `biz_*` data.
+The compiled initializer stages the current schema without requiring dev
+dependencies. The running backend applies conditional migrations such as
+`sys_role_permissions.can_run` when it opens SQLite; verify the result with
+`sqlite3 apps/backend/data/deltacore.db "PRAGMA table_info(sys_role_permissions);"`.
+The migration preserves existing `biz_*` data.
 
 ### Volume and row comparison UI
 
