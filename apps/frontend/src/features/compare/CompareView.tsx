@@ -239,7 +239,7 @@ export function CompareView() {
 
   async function loadSchemaTableDescriptions(tables: string[]) {
     const response = await apiClient.get<{ dictionaries?: DictionarySummary[] }>("/dictionary", {
-      params: { dsn: sourceDsn },
+      params: { sourceName: sourceDsn },
     });
     const localDescriptions = new Map(
       (response.data.dictionaries ?? []).map((dictionary) => [
@@ -255,7 +255,7 @@ export function CompareView() {
         .filter((tableName) => !descriptions[tableName.toUpperCase()])
         .map(async (tableName) => {
           const catalog = await apiClient.get<{ tableDescription?: string }>("/catalog/describe", {
-            params: { dsn: sourceDsn, table: tableName },
+            params: { sourceName: sourceDsn, table: tableName },
           });
           descriptions[tableName.toUpperCase()] = catalog.data.tableDescription?.trim() ?? "";
         }),
@@ -266,10 +266,10 @@ export function CompareView() {
   async function loadSchemaTableDetail(tableName: string): Promise<SchemaTableDetail> {
     const [source, target] = await Promise.all([
       apiClient.get<SchemaTableDetail["source"]>("/catalog/describe", {
-        params: { dsn: sourceDsn, table: tableName },
+        params: { sourceName: sourceDsn, table: tableName },
       }),
       apiClient.get<SchemaTableDetail["target"]>("/catalog/describe", {
-        params: { dsn: targetDsn, table: tableName },
+        params: { sourceName: targetDsn, table: tableName },
       }),
     ]);
     return { source: source.data, target: target.data };
