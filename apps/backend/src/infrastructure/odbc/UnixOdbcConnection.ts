@@ -64,7 +64,11 @@ export async function openUnixOdbcConnection(
       console.error(`[ODBC] Connection attempt failed dsn=${dsn} attempt=${attempt.label}: ${detail}`);
     }
   }
-  const message = `No se pudo conectar por ODBC al DSN ${dsn}. Intentos: ${failures.join(" | ")}`;
+  const message =
+    `No se pudo conectar por ODBC al DSN ${dsn}. ` +
+    `ODBCINI=${process.env.ODBCINI ?? "(no definido)"} ` +
+    `ODBCSYSINI=${process.env.ODBCSYSINI ?? "(no definido)"}. ` +
+    `Intentos: ${failures.join(" | ")}`;
   console.error(`[ODBC] ${message}`);
   throw new Error(message);
 }

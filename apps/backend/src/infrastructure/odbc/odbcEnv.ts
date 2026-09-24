@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -36,10 +37,15 @@ export function applyOdbcRuntimeEnv(repoRoot?: string): void {
   const root = repoRoot ?? defaultRepoRoot();
   const odbcDir = path.join(root, "infrastructure/odbc");
   const cli = process.env.IBM_DB_HOME ?? path.join(odbcDir, "clidriver");
-  const useSystemOdbcConfig = process.env.DB2_CATALOG === "ibmi" && !process.env.ODBCINI;
+  const ibmiSystemOdbcDir = "/QOpenSys/etc";
+  const useSystemOdbcConfig =
+    process.env.DB2_CATALOG === "ibmi" && existsSync(ibmiSystemOdbcDir);
   process.env.IBM_DB_HOME = cli;
   process.env.DB2_CLI_DRIVER_INSTALL_PATH ??= cli;
-  if (!useSystemOdbcConfig) {
+  if (useSystemOdbcConfig) {
+    process.env.ODBCINI = path.join(ibmiSystemOdbcDir, "odbc.ini");
+    process.env.ODBCSYSINI = ibmiSystemOdbcDir;
+  } else {
     process.env.ODBCINI ??= path.join(odbcDir, "odbc.ini");
     process.env.ODBCSYSINI ??= odbcDir;
   }
