@@ -75,7 +75,6 @@ export function DictionaryView() {
         }
         const dictionaries = response.data.dictionaries ?? [];
         setLocalDictionaries(dictionaries);
-        setTable("");
       })
       .catch((err) => {
         if (!cancelled) {

@@ -330,28 +330,24 @@ export function DictionaryPanel({
   }
 
   useEffect(() => {
-    if (autoLoad && table.trim()) {
-      void load(false);
-    }
-  }, [autoLoad, dsn, schema, table]);
-
-  useEffect(() => {
     if (!autoLoad || localDictionaries.length === 0) {
       return;
     }
     setOrigin("saved");
     setDescriptions(localDictionaries);
     setProgress({ current: localDictionaries.length, total: localDictionaries.length });
-    const first = localDictionaries[0];
-    setColumns(first.columns);
-    setActiveSchema(first.schema);
-    setActiveTable(first.table);
-    setActiveTableDescription(first.tableDescription ?? "");
-    setActiveRowCount(first.rowCount ?? 0);
-    setSelectedTableKey(`${first.schema}.${first.table}`);
-    onLoaded?.(first);
+    const selected = localDictionaries.find(
+      (item) => item.table.toUpperCase() === table.trim().toUpperCase(),
+    ) ?? localDictionaries[0];
+    setColumns(selected.columns);
+    setActiveSchema(selected.schema);
+    setActiveTable(selected.table);
+    setActiveTableDescription(selected.tableDescription ?? "");
+    setActiveRowCount(selected.rowCount ?? 0);
+    setSelectedTableKey(`${selected.schema}.${selected.table}`);
+    onLoaded?.(selected);
     setProgress(null);
-  }, [autoLoad, localDictionaries, onLoaded]);
+  }, [autoLoad, localDictionaries, onLoaded, table]);
 
   function publish(next: DictionaryRecord["columns"], nextOrigin = origin) {
     setColumns(next);

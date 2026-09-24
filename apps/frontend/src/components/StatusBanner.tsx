@@ -22,7 +22,7 @@ export function StatusProvider({ children }: { children: ReactNode }) {
     if (!notice) {
       return;
     }
-    const timeout = window.setTimeout(() => setNotice(null), 3000);
+    const timeout = window.setTimeout(() => setNotice(null), 5000);
     return () => window.clearTimeout(timeout);
   }, [notice]);
 

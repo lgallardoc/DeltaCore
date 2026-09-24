@@ -36,10 +36,13 @@ export function applyOdbcRuntimeEnv(repoRoot?: string): void {
   const root = repoRoot ?? defaultRepoRoot();
   const odbcDir = path.join(root, "infrastructure/odbc");
   const cli = process.env.IBM_DB_HOME ?? path.join(odbcDir, "clidriver");
+  const useSystemOdbcConfig = process.env.DB2_CATALOG === "ibmi" && !process.env.ODBCINI;
   process.env.IBM_DB_HOME = cli;
   process.env.DB2_CLI_DRIVER_INSTALL_PATH ??= cli;
-  process.env.ODBCINI ??= path.join(odbcDir, "odbc.ini");
-  process.env.ODBCSYSINI ??= odbcDir;
+  if (!useSystemOdbcConfig) {
+    process.env.ODBCINI ??= path.join(odbcDir, "odbc.ini");
+    process.env.ODBCSYSINI ??= odbcDir;
+  }
   prependLibraryPath(path.join(cli, "lib"));
   if (process.env.UNIXODBC_LIB_DIR) {
     prependLibraryPath(process.env.UNIXODBC_LIB_DIR);

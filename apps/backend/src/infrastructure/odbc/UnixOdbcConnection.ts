@@ -11,6 +11,7 @@ export class UnixOdbcConnection implements IOdbcConnection {
   constructor(
     private readonly conn: odbc.Connection,
     private readonly engine: EngineType,
+    private readonly dsn: string,
     readonly searchPath: string[],
   ) {}
 
@@ -23,7 +24,9 @@ export class UnixOdbcConnection implements IOdbcConnection {
       const rows = await this.conn.query<T>(stripSqlTerminator(sql));
       return [...rows].map((row) => lowercaseKeys(row));
     } catch (error) {
-      throw wrapOdbcError(error, sql);
+      const wrapped = wrapOdbcError(error, sql);
+      console.error(`[ODBC] SQL query failed dsn=${this.dsn}: ${wrapped.message}`);
+      throw wrapped;
     }
   }
 
@@ -46,20 +49,24 @@ export async function openUnixOdbcConnection(
   const attempts = [
     { label: `DSN ${dsn}`, connectionString: `DSN=${dsn};` },
     { label: `Configuración del DSN ${dsn}`, connectionString: connectionStringForDsn(dsn) },
-    { label: "IBM CLI TCP/IP configurado", connectionString: `DRIVER=${driver};${db2TcpipConnectionString()}` },
+    ...(process.env.DB2_CATALOG === "ibmi"
+      ? []
+      : [{ label: "IBM CLI TCP/IP configurado", connectionString: `DRIVER=${driver};${db2TcpipConnectionString()}` }]),
   ];
   const failures: string[] = [];
   for (const attempt of attempts) {
     try {
       const conn = await odbc.connect(attempt.connectionString);
-      return new UnixOdbcConnection(conn, engine, searchPath);
+      return new UnixOdbcConnection(conn, engine, dsn, searchPath);
     } catch (error) {
-      failures.push(`${attempt.label}: ${formatOdbcError(error)}`);
+      const detail = formatOdbcError(error);
+      failures.push(`${attempt.label}: ${detail}`);
+      console.error(`[ODBC] Connection attempt failed dsn=${dsn} attempt=${attempt.label}: ${detail}`);
     }
   }
-  throw new Error(
-    `No se pudo conectar por ODBC al DSN ${dsn}. Intentos: ${failures.join(" | ")}`,
-  );
+  const message = `No se pudo conectar por ODBC al DSN ${dsn}. Intentos: ${failures.join(" | ")}`;
+  console.error(`[ODBC] ${message}`);
+  throw new Error(message);
 }
 
 function lowercaseKeys<T>(row: T): T {

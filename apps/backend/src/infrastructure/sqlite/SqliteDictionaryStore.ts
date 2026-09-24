@@ -50,8 +50,8 @@ export class SqliteDictionaryStore {
       .prepare(
         `SELECT id, schema_name, table_name, table_description, row_count, source_dsn, updated_at
          FROM biz_data_dictionaries
-        WHERE table_name = ?
-        ORDER BY ${schemaFilter}updated_at DESC
+         WHERE table_name = ?
+         ORDER BY ${schemaFilter}updated_at DESC
          LIMIT 1`,
       )
       .all(...params)[0] as
@@ -77,7 +77,7 @@ export class SqliteDictionaryStore {
       .prepare(
         `SELECT id, schema_name, table_name, table_description, row_count, source_dsn, updated_at
          FROM biz_data_dictionaries
-         WHERE ? = '' OR source_dsn = ?
+         WHERE ? = '' OR UPPER(source_dsn) = UPPER(?)
          ORDER BY table_name`,
       )
       .all(dsn, dsn) as Array<{
