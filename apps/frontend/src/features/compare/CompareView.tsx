@@ -76,9 +76,10 @@ export function CompareView() {
       return;
     }
     let cancelled = false;
+    const selectedSource = sources.find((source) => source.name === sourceDsn);
     void apiClient
       .get<{ dictionaries?: DictionarySummary[] }>("/dictionary", {
-        params: { sourceName: sourceDsn },
+        params: { dsn: selectedSource?.dsn ?? sourceDsn },
       })
       .then((sourceResponse) => {
         if (cancelled) {
@@ -108,7 +109,7 @@ export function CompareView() {
     return () => {
       cancelled = true;
     };
-  }, [sourceDsn]);
+  }, [sourceDsn, sources]);
 
   const sourceMeta = useMemo(
     () => sources.find((item) => item.name === sourceDsn),
