@@ -202,6 +202,7 @@ export function DictionaryPanel({
         ),
         keyColumns: (response.data.keyColumns ?? []).filter(Boolean),
       };
+      data = withDefaultKeyColumns(data);
       if (autoSaveCatalog) {
         if (!canSave) {
           throw new Error("No tiene permiso para guardar automáticamente.");
@@ -291,7 +292,7 @@ export function DictionaryPanel({
         },
       });
       const data = preferCatalog
-        ? {
+        ? withDefaultKeyColumns({
             origin: "catalog" as const,
             schema: String(response.data.schema ?? schema),
             table: String(response.data.table ?? table),
@@ -304,8 +305,8 @@ export function DictionaryPanel({
               }),
             ),
             keyColumns: [] as string[],
-          }
-        : (response.data as DictionaryRecord);
+          })
+        : withDefaultKeyColumns(response.data as DictionaryRecord);
       setOrigin(data.origin);
       setColumns(data.columns);
       setActiveSchema(data.schema);
@@ -338,9 +339,9 @@ export function DictionaryPanel({
     setOrigin("saved");
     setDescriptions(localDictionaries);
     setProgress({ current: localDictionaries.length, total: localDictionaries.length });
-    const selected = localDictionaries.find(
+    const selected = withDefaultKeyColumns(localDictionaries.find(
       (item) => item.table.toUpperCase() === table.trim().toUpperCase(),
-    ) ?? localDictionaries[0];
+    ) ?? localDictionaries[0]);
     setColumns(selected.columns);
     setActiveSchema(selected.schema);
     setActiveTable(selected.table);
@@ -742,6 +743,24 @@ export function DictionaryPanel({
 
 function dictionaryPanelSessionKey(dsn: string): string {
   return `deltacore.dictionary-panel.${dsn.trim().toUpperCase()}`;
+}
+
+function withDefaultKeyColumns(dictionary: DictionaryRecord): DictionaryRecord;
+function withDefaultKeyColumns(dictionary: DictionaryRecord | undefined): DictionaryRecord | undefined;
+function withDefaultKeyColumns(dictionary: DictionaryRecord | undefined): DictionaryRecord | undefined {
+  if (!dictionary || dictionary.columns.length === 0) {
+    return dictionary;
+  }
+  const hasKey = dictionary.keyColumns.length > 0 || dictionary.columns.some((column) => column.isKey);
+  if (hasKey) {
+    return dictionary;
+  }
+  const columns = dictionary.columns.map((column) => ({ ...column, isKey: true }));
+  return {
+    ...dictionary,
+    columns,
+    keyColumns: columns.map((column) => column.columnName),
+  };
 }
 
 function readDictionaryPanelSession(dsn: string): DictionaryPanelSession | null {
