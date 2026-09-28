@@ -1,4 +1,5 @@
 import path from "node:path";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { SqlQueryProvider } from "../sql/SqlQueryProvider.js";
 import type { ITextFileReader } from "../../domain/ports/ITextFileReader.js";
@@ -70,6 +71,37 @@ describe("SqlQueryProvider", () => {
       delete process.env.DB2_CATALOG;
     } else {
       process.env.DB2_CATALOG = previous;
+    }
+  });
+
+  it("loads Db2 for i primary keys through SYSCST and SYSKEYCST", () => {
+    const previous = process.env.DB2_CATALOG;
+    process.env.DB2_CATALOG = "ibmi";
+    try {
+      const primaryKeySql = readFileSync(
+        new URL("../sql-dialects/db2-ibmi/primary-key.sql", import.meta.url),
+        "utf8",
+      );
+      const files = new InMemorySqlFiles({
+        "db2-ibmi/primary-key.sql": primaryKeySql,
+      });
+      const sql = new SqlQueryProvider("/virtual/sql-dialects", files).buildQuery(
+        "db2",
+        "primary-key",
+        { schema: "AZBASWQA", tableName: "ACCTX" },
+      );
+
+      expect(sql).toContain("QSYS2.SYSKEYCST K");
+      expect(sql).toContain("JOIN QSYS2.SYSCST C");
+      expect(sql).toContain("C.CONSTRAINT_TYPE = 'PRIMARY KEY'");
+      expect(sql).toContain("ORDER BY K.ORDINAL_POSITION");
+      expect(sql).not.toContain("K.CONSTRAINT_TYPE");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.DB2_CATALOG;
+      } else {
+        process.env.DB2_CATALOG = previous;
+      }
     }
   });
 });

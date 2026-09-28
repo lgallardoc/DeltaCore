@@ -66,6 +66,9 @@ npm run update:dictionary-keys
 
 The script updates dictionaries already stored in SQLite. Tables listed in the CSV use its ordered columns; every other table with a local dictionary uses all of its dictionary columns as a composite key. CSV tables without a local dictionary are skipped. The script validates CSV columns, updates transactionally and creates a timestamped `.bak` copy before writing. Stop the application before applying it. To use another CSV or database, pass a CSV path and/or `--db <path>`.
 
+For live IBM i comparisons, primary-key lookup reads constraint type from
+`QSYS2.SYSCST` and ordered key columns from `QSYS2.SYSKEYCST`.
+
 ## Network configuration (single source: `.env`)
 
 Copy `.env.example` to `.env`. Configure host/IP, port and public URL in the

@@ -1,8 +1,9 @@
 export const CURRENT_RELEASE = {
-  version: "1.2.2",
+  version: "1.2.3",
   date: "2026-09-28",
-  title: "Analítica, comparación y claves locales",
+  title: "Correcciones de catálogo Db2 for i",
   changes: [
+    "Corrección de consulta de primary keys IBM i: el tipo de constraint se obtiene desde SYSCST y sus columnas ordenadas desde SYSKEYCST.",
     "Panel de Actividad con uso por periodo, sesiones, páginas, operaciones, errores y recurrencia por usuario.",
     "Historial de actividad con búsqueda, filtros y paginación en servidor.",
     "PK del diccionario local visibles de forma consistente en Schema, Volumen y Fila a fila, sin depender del esquema.",
