@@ -14,6 +14,96 @@ const schemaSql = readFileSync(
 );
 
 describe("SqliteRbacStore profiles", () => {
+  it("records each login session once and lists user activity", () => {
+    const db = new DatabaseSync(":memory:");
+    db.exec(schemaSql);
+    db.exec("INSERT INTO sys_users (id, sso_id, email) VALUES ('user-audit', 'sso-audit', 'audit@example.com')");
+    const store = new SqliteRbacStore(db);
+
+    store.recordLogin("user-audit", "session-1");
+    store.recordLogin("user-audit", "session-1");
+    store.recordLogin("user-audit", "session-2");
+    store.recordActivity("user-audit", "POST", "/api/jobs/42/run", 200, "session-1");
+    store.recordActivity("user-audit", "POST", "/api/jobs/43/run", 500, "session-1");
+
+    const entries = store.listAuditLog("user-audit");
+    expect(entries).toHaveLength(4);
+    expect(entries.filter((entry) => entry.action === "login")).toHaveLength(2);
+    expect(entries).toContainEqual(expect.objectContaining({
+      email: "audit@example.com",
+      action: "POST /api/jobs/42/run",
+      payloadJson: JSON.stringify({
+        method: "POST",
+        route: "/api/jobs/42/run",
+        statusCode: 200,
+      }),
+    }));
+    expect(store.getAuditAnalytics({
+      from: new Date().toISOString().slice(0, 10),
+      to: new Date().toISOString().slice(0, 10),
+      userId: "user-audit",
+    })).toMatchObject({
+      summary: {
+        events: 4,
+        sessions: 2,
+        pageViews: 0,
+        actions: 2,
+        activeUsers: 1,
+        returningUsers: 1,
+        failedActions: 1,
+      },
+      users: [{ email: "audit@example.com", sessions: 2, actions: 2, activeDays: 1 }],
+      modules: [
+        { module: "Jobs", actions: 2, activeUsers: 1, failedActions: 1 },
+      ],
+    });
+  });
+
+  it("excludes analytics traffic and paginates functional history", () => {
+    const db = new DatabaseSync(":memory:");
+    db.exec(schemaSql);
+    db.exec("INSERT INTO sys_users (id, sso_id, email) VALUES ('user-usage', 'sso-usage', 'usage@example.com')");
+    const store = new SqliteRbacStore(db);
+    const today = new Date().toISOString().slice(0, 10);
+
+    store.recordLogin("user-usage", "session-usage");
+    store.recordActivity("user-usage", "PAGE_VIEW", "/compare", 200, "session-usage");
+    store.recordActivity("user-usage", "POST", "/api/jobs/:jobId/schema-compare", 200, "session-usage");
+    store.recordActivity("user-usage", "PAGE_VIEW", "/activity", 200, "session-usage");
+    store.recordActivity("user-usage", "GET", "/api/admin/audit-analytics", 200, "session-usage");
+
+    const analytics = store.getAuditAnalytics({ from: today, to: today });
+    expect(analytics.summary).toMatchObject({
+      events: 3,
+      sessions: 1,
+      pageViews: 1,
+      actions: 1,
+      activeUsers: 1,
+      failedActions: 0,
+    });
+    expect(analytics.modules).toEqual([{
+      module: "Comparación",
+      pageViews: 1,
+      actions: 1,
+      activeUsers: 1,
+      failedActions: 0,
+    }]);
+
+    const firstPage = store.listAuditHistory({ from: today, to: today, offset: 0, limit: 1 });
+    const secondPage = store.listAuditHistory({ from: today, to: today, offset: 1, limit: 1 });
+    expect(firstPage.total).toBe(3);
+    expect(firstPage.entries).toHaveLength(1);
+    expect(secondPage.entries).toHaveLength(1);
+    expect(firstPage.entries[0].id).not.toBe(secondPage.entries[0].id);
+    expect(store.listAuditHistory({
+      from: today,
+      to: today,
+      search: "compare",
+      offset: 0,
+      limit: 10,
+    }).total).toBe(2);
+  });
+
   it("registers a new login with the admin profile", () => {
     const db = new DatabaseSync(":memory:");
     db.exec(schemaSql);

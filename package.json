@@ -1,7 +1,7 @@
 {
   "name": "deltacore",
   "private": true,
-  "version": "1.1.2",
+  "version": "1.2.1",
   "description": "Enterprise DB Metadata Reconciliator",
   "workspaces": [
     "apps/*",
@@ -28,6 +28,7 @@
     "build:itg": "bash scripts/build-itg.sh",
     "cli": "bash scripts/cli.sh",
     "init:db": "npm --prefix apps/backend run init:db",
+    "update:dictionary-keys": "node scripts/update-dictionary-keys.mjs",
     "sync:fdesa01": "bash scripts/sync-fdesa01.sh"
   },
   "engines": {

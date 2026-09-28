@@ -62,6 +62,7 @@ export function createApp(deps: {
     try {
       const identity = await identityFromRequest(req, deps.verifyToken);
       const userId = deps.rbac.ensureUser(identity);
+      deps.rbac.recordLogin(userId, identity.sessionId);
       res.json(deps.rbac.permissionsFor(userId, req.params.moduleName));
     } catch (error) {
       console.warn(
@@ -85,6 +86,64 @@ export function createApp(deps: {
         modules: deps.rbac.listModules(),
       });
     });
+  });
+
+  app.get("/api/admin/audit-log", async (req, res) => {
+    await withRbac(req, res, deps.verifyToken, deps.rbac, "USERS", "canRead", async () => {
+      const userId = queryString(req, "userId");
+      res.json({ entries: deps.rbac.listAuditLog(userId || undefined) });
+    });
+  });
+
+  app.get("/api/admin/audit-analytics", async (req, res) => {
+    await withRbac(req, res, deps.verifyToken, deps.rbac, "USERS", "canRead", async () => {
+      const from = queryString(req, "from");
+      const to = queryString(req, "to");
+      if (!isIsoDate(from) || !isIsoDate(to) || from > to) {
+        res.status(400).json({ error: "from and to must be valid dates in YYYY-MM-DD format" });
+        return;
+      }
+      const userId = queryString(req, "userId");
+      res.json(deps.rbac.getAuditAnalytics({ from, to, userId: userId || undefined }));
+    });
+  });
+
+  app.get("/api/admin/audit-history", async (req, res) => {
+    await withRbac(req, res, deps.verifyToken, deps.rbac, "USERS", "canRead", async () => {
+      const from = queryString(req, "from");
+      const to = queryString(req, "to");
+      if (!isIsoDate(from) || !isIsoDate(to) || from > to) {
+        res.status(400).json({ error: "from and to must be valid dates in YYYY-MM-DD format" });
+        return;
+      }
+      const userId = queryString(req, "userId");
+      res.json(deps.rbac.listAuditHistory({
+        from,
+        to,
+        userId: userId || undefined,
+        search: queryString(req, "search"),
+        offset: boundedInteger(queryString(req, "offset"), 0, 0, 1_000_000),
+        limit: boundedInteger(queryString(req, "limit"), 50, 1, 100),
+      }));
+    });
+  });
+
+  app.post("/api/usage-events", async (req, res) => {
+    try {
+      const identity = await identityFromRequest(req, deps.verifyToken);
+      const userId = deps.rbac.ensureUser(identity);
+      deps.rbac.recordLogin(userId, identity.sessionId);
+      const page = asTrimmed((req.body as { page?: unknown } | undefined)?.page);
+      if (!USAGE_PAGE_PATHS.has(page)) {
+        res.status(400).json({ error: "page is not a tracked route" });
+        return;
+      }
+      deps.rbac.recordActivity(userId, "PAGE_VIEW", page, 200, identity.sessionId);
+      res.status(202).json({ ok: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      res.status(message === "missing bearer token" ? 401 : 500).json({ error: message });
+    }
   });
 
   app.put("/api/admin/rbac/roles", async (req, res) => {
@@ -527,6 +586,17 @@ type RbacAction = keyof Pick<
   "canRead" | "canWrite" | "canCreate" | "canEdit" | "canDelete" | "canSave" | "canRun"
 >;
 
+const USAGE_PAGE_PATHS = new Set([
+  "/compare",
+  "/dictionary",
+  "/catalog",
+  "/jobs",
+  "/profiles",
+  "/users",
+  "/activity",
+  "/release",
+]);
+
 async function withRbac(
   req: Request,
   res: Response,
@@ -539,6 +609,7 @@ async function withRbac(
   try {
     const identity = await identityFromRequest(req, verifyToken);
     const userId = rbac.ensureUser(identity);
+    rbac.recordLogin(userId, identity.sessionId);
     const modules = Array.isArray(moduleNames) ? moduleNames : [moduleNames];
     const requiredActions = Array.isArray(actions) ? actions : [actions];
     const authorized = modules.some((moduleName) => {
@@ -546,10 +617,11 @@ async function withRbac(
       return requiredActions.every((action) => permission[action]);
     });
     if (!authorized) {
+      recordRequestActivity(rbac, userId, req, res.statusCode || 403, identity.sessionId);
       res.status(403).json({ error: `${modules.join(" or ")} permission required` });
       return;
     }
-    await run();
+    await runWithAudit(rbac, userId, req, res, run, identity.sessionId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(message === "missing bearer token" ? 401 : 500).json({ error: message });
@@ -566,11 +638,13 @@ async function withAdmin(
   try {
     const identity = await identityFromRequest(req, verifyToken);
     const userId = rbac.ensureUser(identity);
+    rbac.recordLogin(userId, identity.sessionId);
     if (!rbac.isAdmin(userId)) {
+      recordRequestActivity(rbac, userId, req, 403, identity.sessionId);
       res.status(403).json({ error: "admin profile required" });
       return;
     }
-    await run(identity);
+    await runWithAudit(rbac, userId, req, res, () => run(identity), identity.sessionId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(message === "missing bearer token" ? 401 : 500).json({ error: message });
@@ -587,22 +661,64 @@ async function withRbacRead(
   try {
     const identity = await identityFromRequest(req, verifyToken);
     const userId = rbac.ensureUser(identity);
+    rbac.recordLogin(userId, identity.sessionId);
     const canReadUsers = rbac.permissionsFor(userId, "USERS").canRead;
     const canReadProfiles = rbac.permissionsFor(userId, "PROFILES").canRead;
     if (!canReadUsers && !canReadProfiles) {
+      recordRequestActivity(rbac, userId, req, 403, identity.sessionId);
       res.status(403).json({ error: "read permission required" });
       return;
     }
-    await run(identity);
+    await runWithAudit(rbac, userId, req, res, () => run(identity), identity.sessionId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(message === "missing bearer token" ? 401 : 500).json({ error: message });
   }
 }
 
+function recordRequestActivity(
+  rbac: SqliteRbacStore,
+  userId: string,
+  req: Request,
+  statusCode: number,
+  sessionId?: string | null,
+): void {
+  if (req.path.startsWith("/api/rbac/modules/")) return;
+  const route = typeof req.route?.path === "string" ? req.route.path : req.path;
+  rbac.recordActivity(userId, req.method, route, statusCode, sessionId);
+}
+
+async function runWithAudit(
+  rbac: SqliteRbacStore,
+  userId: string,
+  req: Request,
+  res: Response,
+  run: () => Promise<void>,
+  sessionId?: string | null,
+): Promise<void> {
+  try {
+    await run();
+  } catch (error) {
+    recordRequestActivity(rbac, userId, req, 500, sessionId);
+    throw error;
+  }
+  recordRequestActivity(rbac, userId, req, res.statusCode, sessionId);
+}
+
 function queryString(req: Request, name: string): string {
   const value = req.query[name];
   return typeof value === "string" ? value.trim() : "";
+}
+
+function isIsoDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function boundedInteger(value: string, fallback: number, minimum: number, maximum: number): number {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? Math.min(maximum, Math.max(minimum, parsed)) : fallback;
 }
 
 function resolveRequestDsn(

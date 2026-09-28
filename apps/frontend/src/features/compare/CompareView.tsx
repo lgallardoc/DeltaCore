@@ -418,10 +418,11 @@ export function CompareView() {
           compareSession={compareSession}
         />
       ) : mode === "volume" && results.length > 0 ? (
-        <VolumeComparisonSummary results={results} tableDescriptions={tableDescriptions} />
+        <VolumeComparisonSummary results={results} dictionaries={dictionaries} tableDescriptions={tableDescriptions} />
       ) : mode === "schema" && results.length > 0 ? (
         <SchemaComparisonSummary
           results={results}
+          dictionaries={dictionaries}
           tableDescriptions={tableDescriptions}
           onLoadSchemaDetail={loadSchemaTableDetail}
         />
@@ -444,10 +445,12 @@ export function CompareView() {
 
 function SchemaComparisonSummary({
   results,
+  dictionaries,
   tableDescriptions,
   onLoadSchemaDetail,
 }: {
   results: JobResult[];
+  dictionaries: DictionarySummary[];
   tableDescriptions: Record<string, string>;
   onLoadSchemaDetail: (table: string) => Promise<SchemaTableDetail>;
 }) {
@@ -497,6 +500,7 @@ function SchemaComparisonSummary({
             <tr>
               <th>Tabla</th>
               <th>Descripción</th>
+              <th>PK local</th>
               <th>Columnas comparadas</th>
               <th>Con diferencias</th>
               <th>Integridad</th>
@@ -509,6 +513,7 @@ function SchemaComparisonSummary({
               <tr key={row.table}>
                 <td className="font-code">{row.table}</td>
                 <td>{tableDescriptions[row.table.toUpperCase()] || "—"}</td>
+                <td className="font-code">{formatLocalPrimaryKey(dictionaries, row.table)}</td>
                 <td>{formatNumber(row.columns)}</td>
                 <td className={row.differences > 0 ? "text-amber-700" : "text-emerald-700"}>{formatNumber(row.differences)}</td>
                 <td>{row.integrity}%</td>
@@ -527,6 +532,7 @@ function SchemaComparisonSummary({
         <SchemaSummaryModal
           table={selectedTable}
           detail={detail}
+          keyColumns={findLocalDictionary(dictionaries, selectedTable)?.keyColumns ?? []}
           error={error}
           busy={busy}
           onClose={() => {
@@ -542,30 +548,33 @@ function SchemaComparisonSummary({
 function SchemaSummaryModal({
   table,
   detail,
+  keyColumns,
   error,
   busy,
   onClose,
 }: {
   table: string;
   detail: SchemaTableDetail | null;
+  keyColumns: string[];
   error: string;
   busy: boolean;
   onClose: () => void;
 }) {
   const columns = detail ? [...new Set([...detail.source.columns, ...detail.target.columns].map((column) => column.columnName))] : [];
+  const keySet = new Set(keyColumns.map((column) => column.toUpperCase()));
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-label={`Detalle de esquema ${table}`}>
       <div className="fin-panel flex max-h-[85vh] w-full max-w-6xl flex-col rounded-lg border p-4">
         <div className="mb-3 flex items-center justify-between gap-3"><h3 className="text-base font-bold">Detalle de esquema: {table}</h3><button id="btnView_compare_close_schema" type="button" className="btn btn-sm" onClick={onClose}>Cerrar</button></div>
         <div className="min-h-0 overflow-auto rounded border">
-          <table className="table table-xs table-pin-rows"><thead><tr><th>Campo</th><th>Tipo origen</th><th>Largo origen</th><th>Decimales origen</th><th>Tipo destino</th><th>Largo destino</th><th>Decimales destino</th></tr></thead><tbody>
+          <table className="table table-xs table-pin-rows"><thead><tr><th>Campo</th><th>PK local</th><th>Tipo origen</th><th>Largo origen</th><th>Decimales origen</th><th>Tipo destino</th><th>Largo destino</th><th>Decimales destino</th></tr></thead><tbody>
             {columns.map((name) => {
               const source = detail?.source.columns.find((column) => column.columnName === name);
               const target = detail?.target.columns.find((column) => column.columnName === name);
-              return <tr key={name}><td className="font-code">{name}</td><td>{source?.dataType ?? "—"}</td><td>{source?.length ?? "—"}</td><td>{source?.scale ?? "—"}</td><td>{target?.dataType ?? "—"}</td><td>{target?.length ?? "—"}</td><td>{target?.scale ?? "—"}</td></tr>;
+              return <tr key={name}><td className="font-code">{name}</td><td>{keySet.has(name.toUpperCase()) ? <span className="font-semibold text-[color:var(--brand)]">PK</span> : "—"}</td><td>{source?.dataType ?? "—"}</td><td>{source?.length ?? "—"}</td><td>{source?.scale ?? "—"}</td><td>{target?.dataType ?? "—"}</td><td>{target?.length ?? "—"}</td><td>{target?.scale ?? "—"}</td></tr>;
             })}
-            {busy ? <tr><td colSpan={7} className="py-8 text-center">Cargando detalle...</td></tr> : null}
-            {error ? <tr><td colSpan={7} className="py-8 text-center text-red-700">{error}</td></tr> : null}
+            {busy ? <tr><td colSpan={8} className="py-8 text-center">Cargando detalle...</td></tr> : null}
+            {error ? <tr><td colSpan={8} className="py-8 text-center text-red-700">{error}</td></tr> : null}
           </tbody></table>
         </div>
       </div>
@@ -575,9 +584,11 @@ function SchemaSummaryModal({
 
 function VolumeComparisonSummary({
   results,
+  dictionaries,
   tableDescriptions,
 }: {
   results: JobResult[];
+  dictionaries: DictionarySummary[];
   tableDescriptions: Record<string, string>;
 }) {
   return (
@@ -589,6 +600,7 @@ function VolumeComparisonSummary({
             <tr>
               <th>Tabla</th>
               <th>Descripción</th>
+              <th>PK local</th>
               <th>Registros origen</th>
               <th>Registros destino</th>
               <th>Diferencia registros</th>
@@ -602,6 +614,7 @@ function VolumeComparisonSummary({
               <tr key={result.jobId}>
                 <td className="font-code">{result.table}</td>
                 <td>{tableDescriptions[(result.table ?? "").toUpperCase()] || "—"}</td>
+                <td className="font-code">{formatLocalPrimaryKey(dictionaries, result.table ?? "")}</td>
                 <td className="dc-origin">{formatCount(result.sourceCount)}</td>
                 <td className="dc-target">{formatCount(result.targetCount)}</td>
                 <td>{formatCount(result.volumeDelta)}</td>
@@ -645,6 +658,7 @@ function RowComparisonSummary({
             <tr>
               <th>Tabla</th>
               <th>Descripción</th>
+              <th>PK local</th>
               <th>Registros origen</th>
               <th>Registros destino</th>
               <th>Diferencia</th>
@@ -680,6 +694,7 @@ function RowComparisonSummary({
                 <tr key={result.jobId}>
                   <td className="font-code">{result.table}</td>
                   <td>{stateBase.tableDescription || "—"}</td>
+                  <td className="font-code">{formatLocalPrimaryKey(dictionaries, result.table ?? "")}</td>
                   <td className="dc-origin">{formatCount(result.sourceCount)}</td>
                   <td className="dc-target">{formatCount(result.targetCount)}</td>
                   <td>{formatCount(result.volumeDelta)}</td>
@@ -720,6 +735,22 @@ function DifferenceLink({
       </Link>
     </td>
   );
+}
+
+function findLocalDictionary(
+  dictionaries: DictionarySummary[],
+  table: string,
+): DictionarySummary | undefined {
+  const tableName = table.trim().toUpperCase();
+  return dictionaries.find((dictionary) => dictionary.table.trim().toUpperCase() === tableName);
+}
+
+function formatLocalPrimaryKey(dictionaries: DictionarySummary[], table: string): string {
+  const dictionary = findLocalDictionary(dictionaries, table);
+  if (!dictionary) return "Sin diccionario";
+  return dictionary.keyColumns?.length
+    ? dictionary.keyColumns.join(", ")
+    : "Sin PK definida";
 }
 
 function formatCount(value: number | undefined): string {

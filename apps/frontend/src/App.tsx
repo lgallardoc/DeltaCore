@@ -1,5 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import type { ReactNode } from "react";
+import { lazy, Suspense, type ReactNode } from "react";
 import { AuthProvider } from "./auth/AuthProvider";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { apiClient } from "./auth/api.client";
@@ -16,6 +16,11 @@ import { ReleaseView } from "./features/release/ReleaseView";
 import { ProfileView } from "./features/profiles/ProfileView";
 import { UserView } from "./features/users/UserView";
 import { LoggedOutView } from "./auth/LoggedOutView";
+
+const ActivityView = lazy(async () => {
+  const module = await import("./features/users/ActivityView");
+  return { default: module.ActivityView };
+});
 
 export function App() {
   const basename = import.meta.env.VITE_HTTP_PREFIX?.replace(/\/$/, "") || undefined;
@@ -43,6 +48,7 @@ export function App() {
             <Route path="/release" element={<ReleaseView />} />
             <Route path="/profiles" element={<ModuleRoute moduleName="PROFILES"><ProfileView /></ModuleRoute>} />
             <Route path="/users" element={<ModuleRoute moduleName="USERS"><UserView /></ModuleRoute>} />
+            <Route path="/activity" element={<ModuleRoute moduleName="USERS"><Suspense fallback={<p className="fin-muted p-4 text-sm">Cargando actividad...</p>}><ActivityView /></Suspense></ModuleRoute>} />
             <Route
               path="/jobs/:jobId"
               element={

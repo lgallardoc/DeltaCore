@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS sys_audit_log (
   user_id TEXT NOT NULL REFERENCES sys_users (id),
   action TEXT NOT NULL,
   timestamp TEXT NOT NULL DEFAULT (datetime('now')),
-  payload_json TEXT
+  payload_json TEXT,
+  auth_session_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS biz_data_sources (

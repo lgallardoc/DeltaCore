@@ -1,5 +1,7 @@
-import { BookMarked, ClipboardList, Database, GitCompare, ShieldCheck, Users } from "lucide-react";
+import { Activity, BookMarked, ClipboardList, Database, GitCompare, ShieldCheck, Users } from "lucide-react";
+import { useEffect, useRef } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
+import { apiClient } from "../../auth/api.client";
 import { usePermissions } from "../../auth/usePermissions";
 import { Navbar } from "./Navbar";
 
@@ -10,10 +12,19 @@ const NAV_ITEMS = [
   { to: "/jobs", label: "Jobs", icon: ClipboardList, moduleName: "JOBS_CONFIG" },
   { to: "/profiles", label: "Perfiles", icon: ShieldCheck, moduleName: "PROFILES" },
   { to: "/users", label: "Usuarios", icon: Users, moduleName: "USERS" },
+  { to: "/activity", label: "Actividad", icon: Activity, moduleName: "USERS" },
 ] as const;
 
 export function Layout() {
   const location = useLocation();
+  const lastTrackedLocation = useRef("");
+
+  useEffect(() => {
+    const page = trackedPage(location.pathname);
+    if (!page || lastTrackedLocation.current === location.key) return;
+    lastTrackedLocation.current = location.key;
+    void apiClient.post("/usage-events", { page }).catch(() => undefined);
+  }, [location.key, location.pathname]);
 
   return (
     <div className="fin-app-bg flex h-screen flex-col overflow-hidden text-slate-900">
@@ -37,6 +48,18 @@ export function Layout() {
       </div>
     </div>
   );
+}
+
+function trackedPage(pathname: string): string | undefined {
+  if (pathname.startsWith("/compare")) return "/compare";
+  if (pathname.startsWith("/dictionary")) return "/dictionary";
+  if (pathname.startsWith("/catalog")) return "/catalog";
+  if (pathname.startsWith("/jobs")) return "/jobs";
+  if (pathname.startsWith("/profiles")) return "/profiles";
+  if (pathname.startsWith("/users")) return "/users";
+  if (pathname.startsWith("/activity")) return "/activity";
+  if (pathname.startsWith("/release")) return "/release";
+  return undefined;
 }
 
 function PermissionNavItem({

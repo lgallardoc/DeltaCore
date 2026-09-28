@@ -15,8 +15,357 @@ type PermissionRecord = {
   canRun: boolean;
 };
 
+function shiftIsoDate(value: string, days: number): string {
+  const date = new Date(`${value}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
 export class SqliteRbacStore {
-  constructor(private readonly db: DatabaseSync) {}
+  constructor(private readonly db: DatabaseSync) {
+    try {
+      db.exec("ALTER TABLE sys_audit_log ADD COLUMN auth_session_id TEXT");
+    } catch {
+      // Existing databases already contain the session column.
+    }
+    db.exec(
+      `CREATE UNIQUE INDEX IF NOT EXISTS sys_audit_login_session
+       ON sys_audit_log (user_id, auth_session_id)
+       WHERE action = 'login' AND auth_session_id IS NOT NULL`,
+    );
+  }
+
+  recordLogin(userId: string, sessionId: string | null | undefined): void {
+    if (!sessionId) return;
+    this.db.prepare(
+      `INSERT OR IGNORE INTO sys_audit_log
+         (id, user_id, action, payload_json, auth_session_id)
+       VALUES (?, ?, 'login', ?, ?)`,
+    ).run(randomUUID(), userId, JSON.stringify({ sessionId }), sessionId);
+  }
+
+  recordActivity(
+    userId: string,
+    method: string,
+    route: string,
+    statusCode: number,
+    sessionId?: string | null,
+  ): void {
+    this.db.prepare(
+      `INSERT INTO sys_audit_log
+         (id, user_id, action, payload_json, auth_session_id)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run(
+      randomUUID(),
+      userId,
+      `${method} ${route}`.slice(0, 500),
+      JSON.stringify({ method, route, statusCode }),
+      sessionId ?? null,
+    );
+  }
+
+  listAuditLog(userId?: string): Array<{
+    id: string;
+    userId: string;
+    email: string;
+    action: string;
+    timestamp: string;
+    payloadJson: string | null;
+  }> {
+    return this.db.prepare(
+      `SELECT a.id, a.user_id AS userId, u.email, a.action, a.timestamp,
+              a.payload_json AS payloadJson
+       FROM sys_audit_log a
+       JOIN sys_users u ON u.id = a.user_id
+       WHERE (? IS NULL OR a.user_id = ?)
+       ORDER BY a.timestamp DESC, a.id DESC
+       LIMIT 500`,
+    ).all(userId ?? null, userId ?? null) as Array<{
+      id: string;
+      userId: string;
+      email: string;
+      action: string;
+      timestamp: string;
+      payloadJson: string | null;
+    }>;
+  }
+
+  getAuditAnalytics(input: {
+    from: string;
+    to: string;
+    userId?: string;
+  }): {
+    summary: {
+      events: number;
+      sessions: number;
+      pageViews: number;
+      actions: number;
+      activeUsers: number;
+      returningUsers: number;
+      failedActions: number;
+    };
+    comparison: {
+      sessions: number;
+      pageViews: number;
+      actions: number;
+      activeUsers: number;
+      returningUsers: number;
+      failedActions: number;
+    };
+    daily: Array<{
+      date: string;
+      sessions: number;
+      pageViews: number;
+      actions: number;
+      activeUsers: number;
+    }>;
+    modules: Array<{
+      module: string;
+      pageViews: number;
+      actions: number;
+      activeUsers: number;
+      failedActions: number;
+    }>;
+    users: Array<{
+      userId: string;
+      email: string;
+      sessions: number;
+      pageViews: number;
+      actions: number;
+      failedActions: number;
+      activeDays: number;
+      lastSeen: string;
+    }>;
+  } {
+    const rangeFilter = `date(a.timestamp) BETWEEN ? AND ?
+      AND (? IS NULL OR a.user_id = ?)`;
+    const activityFilter = `(
+      (a.action LIKE 'PAGE_VIEW %' AND a.action <> 'PAGE_VIEW /activity')
+      OR (a.action <> 'login' AND a.action NOT LIKE 'PAGE_VIEW %'
+        AND a.action NOT LIKE '% /api/admin%'
+        AND a.action NOT LIKE '% /api/rbac%'
+        AND a.action NOT LIKE '% /api/usage-events%')
+    )`;
+    const parametersFor = (from: string, to: string) => [
+      from,
+      to,
+      input.userId ?? null,
+      input.userId ?? null,
+    ];
+    const summaryFor = (from: string, to: string) => this.db.prepare(
+      `SELECT SUM(CASE WHEN a.action = 'login' OR ${activityFilter} THEN 1 ELSE 0 END) AS events,
+         COUNT(DISTINCT CASE WHEN a.action = 'login' THEN a.auth_session_id END) AS sessions,
+         SUM(CASE WHEN a.action LIKE 'PAGE_VIEW %'
+                    AND a.action <> 'PAGE_VIEW /activity' THEN 1 ELSE 0 END) AS pageViews,
+         SUM(CASE WHEN a.action <> 'login' AND a.action NOT LIKE 'PAGE_VIEW %'
+                    AND a.action NOT LIKE '% /api/admin%'
+                    AND a.action NOT LIKE '% /api/rbac%'
+                    AND a.action NOT LIKE '% /api/usage-events%'
+                  THEN 1 ELSE 0 END) AS actions,
+         COUNT(DISTINCT CASE WHEN ${activityFilter} THEN a.user_id END) AS activeUsers,
+         SUM(CASE WHEN a.action <> 'login' AND a.action NOT LIKE 'PAGE_VIEW %'
+                    AND a.action NOT LIKE '% /api/admin%'
+                    AND a.action NOT LIKE '% /api/rbac%'
+                    AND a.action NOT LIKE '% /api/usage-events%'
+                    AND CAST(json_extract(a.payload_json, '$.statusCode') AS INTEGER) >= 400
+                  THEN 1 ELSE 0 END) AS failedActions
+       FROM sys_audit_log a WHERE ${rangeFilter}`,
+    ).get(...parametersFor(from, to)) as {
+      events: number;
+      sessions: number | null;
+      pageViews: number | null;
+      actions: number | null;
+      activeUsers: number;
+      failedActions: number | null;
+    };
+    const returningUsersFor = (from: string, to: string) => {
+      const result = this.db.prepare(
+        `SELECT COUNT(*) AS returningUsers FROM (
+           SELECT a.user_id
+           FROM sys_audit_log a
+           WHERE date(a.timestamp) BETWEEN ? AND ?
+             AND (? IS NULL OR a.user_id = ?)
+             AND a.action = 'login' AND a.auth_session_id IS NOT NULL
+           GROUP BY a.user_id
+           HAVING COUNT(DISTINCT a.auth_session_id) > 1
+         )`,
+      ).get(...parametersFor(from, to)) as { returningUsers: number };
+      return result.returningUsers;
+    };
+    const summary = { ...summaryFor(input.from, input.to), returningUsers: returningUsersFor(input.from, input.to) };
+    const rangeDays = Math.floor(
+      (Date.parse(`${input.to}T00:00:00Z`) - Date.parse(`${input.from}T00:00:00Z`)) / 86_400_000,
+    ) + 1;
+    const comparisonTo = shiftIsoDate(input.from, -1);
+    const comparisonFrom = shiftIsoDate(comparisonTo, -(rangeDays - 1));
+    const comparison = {
+      ...summaryFor(comparisonFrom, comparisonTo),
+      returningUsers: returningUsersFor(comparisonFrom, comparisonTo),
+    };
+    const daily = this.db.prepare(
+      `SELECT date(a.timestamp) AS date,
+         COUNT(DISTINCT CASE WHEN a.action = 'login' THEN a.auth_session_id END) AS sessions,
+         SUM(CASE WHEN a.action LIKE 'PAGE_VIEW %'
+                    AND a.action <> 'PAGE_VIEW /activity' THEN 1 ELSE 0 END) AS pageViews,
+         SUM(CASE WHEN a.action <> 'login' AND a.action NOT LIKE 'PAGE_VIEW %'
+                    AND a.action NOT LIKE '% /api/admin%'
+                    AND a.action NOT LIKE '% /api/rbac%'
+                    AND a.action NOT LIKE '% /api/usage-events%'
+                  THEN 1 ELSE 0 END) AS actions,
+         COUNT(DISTINCT CASE WHEN ${activityFilter} THEN a.user_id END) AS activeUsers
+       FROM sys_audit_log a WHERE ${rangeFilter}
+       GROUP BY date(a.timestamp) ORDER BY date(a.timestamp)`,
+    ).all(...parametersFor(input.from, input.to)) as Array<{
+      date: string;
+      sessions: number;
+      pageViews: number;
+      actions: number;
+      activeUsers: number;
+    }>;
+    const moduleExpr = `CASE
+      WHEN a.action LIKE 'PAGE_VIEW /compare%' OR a.action LIKE '% /api/compare%'
+        OR a.action LIKE '% /api/jobs/%-compare%' THEN 'Comparación'
+      WHEN a.action LIKE 'PAGE_VIEW /catalog%' OR a.action LIKE '% /api/catalog%'
+        OR a.action LIKE '% /api/data-sources%' THEN 'Catálogo'
+      WHEN a.action LIKE 'PAGE_VIEW /dictionary%' OR a.action LIKE '% /api/dictionaries%'
+        THEN 'Diccionario'
+      WHEN a.action LIKE 'PAGE_VIEW /jobs%' OR a.action LIKE '% /api/jobs%' THEN 'Jobs'
+      WHEN a.action LIKE 'PAGE_VIEW /profiles%' OR a.action LIKE 'PAGE_VIEW /users%' THEN 'Administración'
+      WHEN a.action LIKE 'PAGE_VIEW /release%' THEN 'Novedades'
+      ELSE 'Otros'
+    END`;
+    const modules = this.db.prepare(
+      `SELECT ${moduleExpr} AS module,
+         SUM(CASE WHEN a.action LIKE 'PAGE_VIEW %' THEN 1 ELSE 0 END) AS pageViews,
+         SUM(CASE WHEN a.action <> 'login' AND a.action NOT LIKE 'PAGE_VIEW %'
+                  THEN 1 ELSE 0 END) AS actions,
+         COUNT(DISTINCT CASE WHEN ${activityFilter} THEN a.user_id END) AS activeUsers,
+         SUM(CASE WHEN a.action <> 'login' AND a.action NOT LIKE 'PAGE_VIEW %'
+                    AND CAST(json_extract(a.payload_json, '$.statusCode') AS INTEGER) >= 400
+                  THEN 1 ELSE 0 END) AS failedActions
+       FROM sys_audit_log a WHERE ${rangeFilter} AND ${activityFilter}
+       GROUP BY module ORDER BY actions + pageViews DESC, module`,
+    ).all(...parametersFor(input.from, input.to)) as Array<{
+      module: string;
+      pageViews: number;
+      actions: number;
+      activeUsers: number;
+      failedActions: number;
+    }>;
+    const users = this.db.prepare(
+      `SELECT a.user_id AS userId, u.email,
+         COUNT(DISTINCT CASE WHEN a.action = 'login' THEN a.auth_session_id END) AS sessions,
+         SUM(CASE WHEN a.action LIKE 'PAGE_VIEW %'
+                    AND a.action <> 'PAGE_VIEW /activity' THEN 1 ELSE 0 END) AS pageViews,
+         SUM(CASE WHEN a.action <> 'login' AND a.action NOT LIKE 'PAGE_VIEW %'
+                    AND a.action NOT LIKE '% /api/admin%'
+                    AND a.action NOT LIKE '% /api/rbac%'
+                    AND a.action NOT LIKE '% /api/usage-events%'
+                  THEN 1 ELSE 0 END) AS actions,
+         SUM(CASE WHEN a.action <> 'login' AND a.action NOT LIKE 'PAGE_VIEW %'
+                    AND a.action NOT LIKE '% /api/admin%'
+                    AND a.action NOT LIKE '% /api/rbac%'
+                    AND a.action NOT LIKE '% /api/usage-events%'
+                    AND CAST(json_extract(a.payload_json, '$.statusCode') AS INTEGER) >= 400
+                  THEN 1 ELSE 0 END) AS failedActions,
+         COUNT(DISTINCT CASE WHEN ${activityFilter} THEN date(a.timestamp) END) AS activeDays,
+         MAX(a.timestamp) AS lastSeen
+       FROM sys_audit_log a JOIN sys_users u ON u.id = a.user_id
+       WHERE ${rangeFilter} AND (a.action = 'login' OR ${activityFilter})
+      GROUP BY a.user_id, u.email
+      ORDER BY sessions + pageViews + actions DESC, u.email`,
+    ).all(...parametersFor(input.from, input.to)) as Array<{
+      userId: string;
+      email: string;
+      sessions: number;
+      pageViews: number;
+      actions: number;
+      failedActions: number;
+      activeDays: number;
+      lastSeen: string;
+    }>;
+    return {
+      summary: {
+        events: summary.events,
+        sessions: summary.sessions ?? 0,
+        pageViews: summary.pageViews ?? 0,
+        actions: summary.actions ?? 0,
+        activeUsers: summary.activeUsers,
+        returningUsers: summary.returningUsers,
+        failedActions: summary.failedActions ?? 0,
+      },
+      comparison: {
+        sessions: comparison.sessions ?? 0,
+        pageViews: comparison.pageViews ?? 0,
+        actions: comparison.actions ?? 0,
+        activeUsers: comparison.activeUsers,
+        returningUsers: comparison.returningUsers,
+        failedActions: comparison.failedActions ?? 0,
+      },
+      daily,
+      modules,
+      users,
+    };
+  }
+
+  listAuditHistory(input: {
+    from: string;
+    to: string;
+    userId?: string;
+    search?: string;
+    offset: number;
+    limit: number;
+  }): {
+    entries: Array<{
+      id: string;
+      userId: string;
+      email: string;
+      action: string;
+      timestamp: string;
+      payloadJson: string | null;
+    }>;
+    total: number;
+    offset: number;
+    limit: number;
+  } {
+    const filter = `date(a.timestamp) BETWEEN ? AND ?
+      AND (? IS NULL OR a.user_id = ?)
+      AND (a.action = 'login'
+        OR (a.action LIKE 'PAGE_VIEW %' AND a.action <> 'PAGE_VIEW /activity')
+        OR (a.action <> 'login' AND a.action NOT LIKE 'PAGE_VIEW %'
+          AND a.action NOT LIKE '% /api/admin%'
+          AND a.action NOT LIKE '% /api/rbac%'
+          AND a.action NOT LIKE '% /api/usage-events%'))
+      AND (? = '' OR instr(lower(u.email || ' ' || a.action), lower(?)) > 0)`;
+    const parameters = [
+      input.from,
+      input.to,
+      input.userId ?? null,
+      input.userId ?? null,
+      input.search?.trim() ?? "",
+      input.search?.trim() ?? "",
+    ];
+    const total = this.db.prepare(
+      `SELECT COUNT(*) AS total
+       FROM sys_audit_log a JOIN sys_users u ON u.id = a.user_id
+       WHERE ${filter}`,
+    ).get(...parameters) as { total: number };
+    const entries = this.db.prepare(
+      `SELECT a.id, a.user_id AS userId, u.email, a.action, a.timestamp,
+              a.payload_json AS payloadJson
+       FROM sys_audit_log a JOIN sys_users u ON u.id = a.user_id
+       WHERE ${filter}
+       ORDER BY a.timestamp DESC, a.id DESC LIMIT ? OFFSET ?`,
+    ).all(...parameters, input.limit, input.offset) as Array<{
+      id: string;
+      userId: string;
+      email: string;
+      action: string;
+      timestamp: string;
+      payloadJson: string | null;
+    }>;
+    return { entries, total: total.total, offset: input.offset, limit: input.limit };
+  }
 
   listUsers(): Array<{ id: string; ssoId: string; email: string; roles: string[] }> {
     const users = this.db

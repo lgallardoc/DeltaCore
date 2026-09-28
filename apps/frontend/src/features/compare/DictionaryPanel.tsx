@@ -588,16 +588,17 @@ export function DictionaryPanel({
               </button>
             </div>
           </div>
-          <div className="max-h-56 overflow-auto rounded border">
-            <table className="table table-xs">
+          <div className="max-h-56 overflow-y-auto rounded border">
+            <table className="table table-xs table-pin-rows w-full table-fixed">
               <thead>
                 <tr>
-                  <th>Esquema</th>
-                  <th>Tabla</th>
+                  <th className="hidden w-28 lg:table-cell">Esquema</th>
+                  <th className="w-20 sm:w-28">Tabla</th>
                   <th>Descripción</th>
-                  <th>Registros</th>
-                  <th>Columnas</th>
-                  <th>Acción</th>
+                  <th className="hidden w-24 lg:table-cell">Registros</th>
+                  <th className="hidden w-20 lg:table-cell">Columnas</th>
+                  <th className="w-24 sm:w-48">Clave primaria (PK)</th>
+                  <th className="w-20 sm:w-36">Acción</th>
                 </tr>
               </thead>
               <tbody>
@@ -607,7 +608,13 @@ export function DictionaryPanel({
                       .toUpperCase()
                       .includes(tableFilter.trim().toUpperCase()),
                   )
-                  .map((item) => (
+                  .map((item) => {
+                    const savedDictionary = localDictionaries.find(
+                      (dictionary) => dictionary.table.trim().toUpperCase() === item.table.trim().toUpperCase(),
+                    );
+                    const primaryKey = savedDictionary?.keyColumns ??
+                      (item.origin === "saved" ? item.keyColumns : []);
+                    return (
                     <tr
                       key={`${item.schema}.${item.table}`}
                       aria-selected={selectedTableKey === `${item.schema}.${item.table}`}
@@ -618,16 +625,19 @@ export function DictionaryPanel({
                       }
                       onClick={() => selectDescription(item)}
                     >
-                      <td className="font-code">{item.schema}</td>
-                      <td className="font-code">{item.table}</td>
-                      <td>{item.tableDescription || "—"}</td>
-                      <td>{item.rowCount == null ? "—" : formatNumber(item.rowCount)}</td>
-                      <td>{formatNumber(item.columns.length)}</td>
+                      <td className="hidden font-code lg:table-cell">{item.schema}</td>
+                      <td className="break-words font-code">{item.table}</td>
+                      <td className="break-words">{item.tableDescription || "—"}</td>
+                      <td className="hidden lg:table-cell">{item.rowCount == null ? "—" : formatNumber(item.rowCount)}</td>
+                      <td className="hidden lg:table-cell">{formatNumber(item.columns.length)}</td>
+                      <td className="break-words font-code" title={primaryKey.join(", ") || undefined}>
+                        {primaryKey.length ? primaryKey.join(", ") : "—"}
+                      </td>
                       <td>
                         <div className="flex gap-1">
                           <Link
                             id={`btnEdit_dictionary_${item.schema}_${item.table}`}
-                            className={["btn btn-xs", !canEdit ? "pointer-events-none opacity-50" : ""].join(" ")}
+                            className={["btn btn-xs w-8 px-1 sm:w-auto sm:px-2", !canEdit ? "pointer-events-none opacity-50" : ""].join(" ")}
                             aria-disabled={!canEdit}
                             to={`/dictionary/edit?dsn=${encodeURIComponent(dsn)}&schema=${encodeURIComponent(item.schema)}&table=${encodeURIComponent(item.table)}`}
                             state={
@@ -647,12 +657,12 @@ export function DictionaryPanel({
                               editDescription(item);
                             }}
                           >
-                            <Edit3 size={13} /> Editar
+                            <Edit3 size={13} /><span className="hidden sm:inline">Editar</span>
                           </Link>
                           <button
                             id={`btnDel_dictionary_${item.schema}_${item.table}`}
                             type="button"
-                            className="btn btn-xs"
+                            className="btn btn-xs w-8 px-1"
                             disabled={!canDelete || busy}
                             onClick={(event) => {
                               event.stopPropagation();
@@ -665,7 +675,8 @@ export function DictionaryPanel({
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
               </tbody>
             </table>
           </div>

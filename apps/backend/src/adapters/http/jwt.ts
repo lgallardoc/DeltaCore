@@ -29,5 +29,13 @@ export function identityFromPayload(payload: JWTPayload): AccessIdentity {
       typeof payload.preferred_username === "string"
         ? payload.preferred_username
         : null,
+    sessionId:
+      typeof payload.session_state === "string"
+        ? payload.session_state
+        : typeof payload.sid === "string"
+          ? payload.sid
+          : typeof payload.auth_time === "number"
+            ? String(payload.auth_time)
+            : null,
   };
 }

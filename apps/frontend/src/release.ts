@@ -1,8 +1,13 @@
 export const CURRENT_RELEASE = {
-  version: "1.1.2",
-  date: "2026-09-24",
-  title: "Operación IBM i y diccionarios de datos",
+  version: "1.2.1",
+  date: "2026-09-28",
+  title: "Analítica, comparación y claves locales",
   changes: [
+    "Panel de Actividad con uso por periodo, sesiones, páginas, operaciones, errores y recurrencia por usuario.",
+    "Historial de actividad con búsqueda, filtros y paginación en servidor.",
+    "PK del diccionario local visibles de forma consistente en Schema, Volumen y Fila a fila, sin depender del esquema.",
+    "Listado de diccionarios con PK visible y encabezado fijo sin desplazamiento horizontal.",
+    "Script para actualizar las PK locales desde az7dbkeys.csv y usar todas las columnas como clave cuando una tabla no está definida en el archivo.",
     "Administración de perfiles con permisos por módulo y acción: View, New, Edit, Delete y Save.",
     "Perfiles predeterminados admin y solo lectura, con asignación desde la opción Usuarios.",
     "Registro automático de usuarios autenticados y edición de sus datos locales.",

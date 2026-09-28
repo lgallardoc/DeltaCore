@@ -8,13 +8,21 @@ export function Navbar() {
 
   return (
     <header className="fin-panel mb-3 flex flex-col gap-2 rounded-2xl border px-4 py-2.5 md:flex-row md:items-center md:justify-between">
-      <div>
-        <p className="fin-muted text-[10px] uppercase tracking-[0.18em]">
-          DELTACORE
-        </p>
-        <h1 className="text-lg font-bold leading-tight">
-          Reconciliación de metadatos y datos
-        </h1>
+      <div className="flex items-center gap-3">
+        <img
+          src={`${import.meta.env.BASE_URL}icono_DeltaCore.png`}
+          alt=""
+          aria-hidden="true"
+          className="h-12 w-12 shrink-0 object-contain"
+        />
+        <div>
+          <p className="fin-muted text-[10px] uppercase tracking-[0.18em]">
+            DELTACORE
+          </p>
+          <h1 className="text-lg font-bold leading-tight">
+            Reconciliación de metadatos y datos
+          </h1>
+        </div>
       </div>
       <div className="flex items-center gap-2 pb-0.5">
         <Link

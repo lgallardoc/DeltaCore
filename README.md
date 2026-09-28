@@ -46,6 +46,22 @@ A **source** is an ODBC DSN plus metadata in SQLite. You pick **origen** and **d
 
 Schemas for volume/row compare are **not** the DSN: they are `--source-schema` / `--target-schema` (UI: esquema origen / destino).
 
+### Primary keys in local dictionaries
+
+`scripts/az7dbkeys.csv` defines ordered key columns by table name. Preview the update without writing:
+
+```bash
+npm run update:dictionary-keys -- --dry-run
+```
+
+Apply it to the local SQLite database with:
+
+```bash
+npm run update:dictionary-keys
+```
+
+The script updates dictionaries already stored in SQLite. Tables listed in the CSV use its ordered columns; every other table with a local dictionary uses all of its dictionary columns as a composite key. CSV tables without a local dictionary are skipped. The script validates CSV columns, updates transactionally and creates a timestamped `.bak` copy before writing. Stop the application before applying it. To use another CSV or database, pass a CSV path and/or `--db <path>`.
+
 ## Network configuration (single source: `.env`)
 
 Copy `.env.example` to `.env`. Configure host/IP, port and public URL in the
@@ -109,6 +125,8 @@ Package manager: **npm**. Workspaces are declared in the root `package.json`, an
 | `npm run stop:sso` | Stop Keycloak, leave Db2 and Node apps running |
 | `npm test` | Workspace tests |
 | `npm run init:db` | SQLite schema/seed |
+| `npm run update:dictionary-keys -- --dry-run` | Preview local PK changes using `scripts/az7dbkeys.csv` |
+| `npm run update:dictionary-keys` | Apply local PK changes with a backup |
 | `npm run cli -- list-schemas` | Schemas assigned to a DSN (`*LIBL*`) and catalog presence |
 | `npm run cli -- list-tables` | Tables in those schemas (`schema.table`) |
 | `npm run sync:fdesa01` | Sync the project to IBM i and restore `apps/backend/node_modules/odbc` from `$HOME/odbc.tar` |
@@ -126,6 +144,13 @@ steps in order:
 3. Copies local `.env.Deltacore` to remote `/nodeapp/DeltaCore/.env`.
 4. Removes remote `/nodeapp/DeltaCore/apps/backend/node_modules/odbc`.
 5. Extracts remote `$HOME/odbc.tar` into the backend workspace dependencies.
+
+The project sync includes `scripts/update-dictionary-keys.mjs` and its
+`scripts/az7dbkeys.csv` input. It deliberately preserves the remote SQLite
+database. After deployment, preview PK changes on fdesa01 with
+`npm run update:dictionary-keys -- --dry-run`; stop the application, apply with
+`npm run update:dictionary-keys`, then restart the service. The script creates
+a timestamped backup beside the remote database.
 
 The sync uses `--delete` but does not copy any local `node_modules` directory;
 it preserves remote `.env`, `.env.Deltacore`, all remote `node_modules`
