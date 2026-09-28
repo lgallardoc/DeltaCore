@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { JobResult } from "@deltacore/shared";
-import { Play } from "lucide-react";
+import { ChevronLeft, ChevronRight, Play, Search } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { apiClient } from "../../auth/api.client";
 import { useStatusNotification } from "../../components/StatusBanner";
@@ -31,6 +31,9 @@ type CompareSession = {
   limit: string;
   selectedTables: string[];
   results: JobResult[];
+  tableFilter?: string;
+  tablePage?: number;
+  tablePageSize?: number;
 };
 
 export function CompareView() {
@@ -41,6 +44,9 @@ export function CompareView() {
   const [sources, setSources] = useState<DataSource[]>([]);
   const [dictionaries, setDictionaries] = useState<DictionarySummary[]>([]);
   const [selectedTables, setSelectedTables] = useState<string[]>(restored?.selectedTables ?? []);
+  const [tableFilter, setTableFilter] = useState(restored?.tableFilter ?? "");
+  const [tablePage, setTablePage] = useState(restored?.tablePage ?? 1);
+  const [tablePageSize, setTablePageSize] = useState(restored?.tablePageSize ?? 10);
   const [mode, setMode] = useState<Mode>(restored?.mode ?? "row");
   const [sourceDsn, setSourceDsn] = useState(restored?.sourceDsn ?? "");
   const [targetDsn, setTargetDsn] = useState(restored?.targetDsn ?? "");
@@ -49,7 +55,7 @@ export function CompareView() {
   const [error, setError] = useState("");
   const [results, setResults] = useState<JobResult[]>(restored?.results ?? []);
   const [tableDescriptions, setTableDescriptions] = useState<Record<string, string>>({});
-  const [schemaProgress, setSchemaProgress] = useState<{
+  const [comparisonProgress, setComparisonProgress] = useState<{
     completed: number;
     total: number;
     table: string;
@@ -126,6 +132,21 @@ export function CompareView() {
     }
     return left.table.localeCompare(right.table);
   });
+  const normalizedTableFilter = tableFilter.trim().toLocaleLowerCase();
+  const filteredDictionaries = orderedDictionaries.filter((dictionary) =>
+    !normalizedTableFilter || [
+      dictionary.schema,
+      dictionary.table,
+      dictionary.tableDescription ?? "",
+      ...(dictionary.keyColumns ?? []),
+    ].join(" ").toLocaleLowerCase().includes(normalizedTableFilter),
+  );
+  const tablePageCount = Math.max(1, Math.ceil(filteredDictionaries.length / tablePageSize));
+  const currentTablePage = Math.min(tablePage, tablePageCount);
+  const visibleDictionaries = filteredDictionaries.slice(
+    (currentTablePage - 1) * tablePageSize,
+    currentTablePage * tablePageSize,
+  );
   const compareSession: CompareSession = {
     mode,
     sourceDsn,
@@ -133,6 +154,9 @@ export function CompareView() {
     limit,
     selectedTables,
     results,
+    tableFilter,
+    tablePage,
+    tablePageSize,
   };
 
   async function run() {
@@ -140,36 +164,49 @@ export function CompareView() {
     setBusy(true);
     setError("");
     setResults([]);
-    setSchemaProgress(null);
+    setComparisonProgress(null);
     try {
       const selected = dictionaries.filter((dictionary) => selectedTables.includes(dictionary.table));
       if (selected.length === 0) {
         throw new Error("Seleccione al menos una tabla del diccionario local.");
       }
-      const comparisons =
-        mode === "schema"
-          ? [await runSchemaComparison(selected.map((dictionary) => dictionary.table))]
-          : await Promise.all(selected.map(async (dictionary) => {
-            const response = await apiClient.post<JobResult>(
-              mode === "volume" ? "/jobs/ui/volume-compare" : "/jobs/ui/row-compare",
-              mode === "volume" ? {
-                sourceName: sourceDsn,
-                targetName: targetDsn,
-                table: dictionary.table,
-                sourceSchema: sourceMeta?.searchPath.join(","),
-                targetSchema: targetMeta?.searchPath.join(","),
-              } : {
-                sourceName: sourceDsn,
-                targetName: targetDsn,
-                table: dictionary.table,
-                sourceSchema: sourceMeta?.searchPath.join(","),
-                targetSchema: targetMeta?.searchPath.join(","),
-                keyColumns: dictionary.keyColumns ?? [],
-                limit: Number(limit) || undefined,
-              },
-            );
-            return response.data;
-          }));
+      let comparisons: JobResult[];
+      if (mode === "schema") {
+        comparisons = [await runSchemaComparison(selected.map((dictionary) => dictionary.table))];
+      } else {
+        comparisons = [];
+        for (const [index, dictionary] of selected.entries()) {
+          setComparisonProgress({
+            completed: index,
+            total: selected.length,
+            table: dictionary.table,
+          });
+          const response = await apiClient.post<JobResult>(
+            mode === "volume" ? "/jobs/ui/volume-compare" : "/jobs/ui/row-compare",
+            mode === "volume" ? {
+              sourceName: sourceDsn,
+              targetName: targetDsn,
+              table: dictionary.table,
+              sourceSchema: sourceMeta?.searchPath.join(","),
+              targetSchema: targetMeta?.searchPath.join(","),
+            } : {
+              sourceName: sourceDsn,
+              targetName: targetDsn,
+              table: dictionary.table,
+              sourceSchema: sourceMeta?.searchPath.join(","),
+              targetSchema: targetMeta?.searchPath.join(","),
+              keyColumns: dictionary.keyColumns ?? [],
+              limit: Number(limit) || undefined,
+            },
+          );
+          comparisons.push(response.data);
+          setComparisonProgress({
+            completed: index + 1,
+            total: selected.length,
+            table: dictionary.table,
+          });
+        }
+      }
         const failed = comparisons.find((comparison) => comparison.status === "ERROR" || comparison.error);
         if (failed) {
           setError(failed.error ?? "La comparación no pudo completarse.");
@@ -194,7 +231,7 @@ export function CompareView() {
       setResults([]);
     } finally {
       setBusy(false);
-      setSchemaProgress(null);
+      setComparisonProgress(null);
     }
   }
 
@@ -203,7 +240,7 @@ export function CompareView() {
     const schemaDelta: NonNullable<JobResult["schemaDelta"]> = {};
     let jobId = "";
     for (const [index, tableName] of tables.entries()) {
-      setSchemaProgress({ completed: index, total: tables.length, table: tableName });
+      setComparisonProgress({ completed: index, total: tables.length, table: tableName });
       const response = await apiClient.post<JobResult>("/jobs/ui/schema-compare", {
         sourceName: sourceDsn,
         targetName: targetDsn,
@@ -226,7 +263,7 @@ export function CompareView() {
           ]),
         ),
       );
-      setSchemaProgress({ completed: index + 1, total: tables.length, table: tableName });
+      setComparisonProgress({ completed: index + 1, total: tables.length, table: tableName });
     }
     await loadSchemaTableDescriptions(tables);
     return {
@@ -360,9 +397,50 @@ export function CompareView() {
 
       <section className="space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold">Tablas del diccionario local ({dictionaries.length})</h3>
+          <h3 className="text-sm font-semibold">
+            Tablas del diccionario local ({filteredDictionaries.length}{tableFilter ? ` de ${dictionaries.length}` : ""})
+          </h3>
           <div className="flex flex-wrap gap-2">
-            <button id="btnView_compare_select_all" type="button" className="btn btn-xs" onClick={() => setSelectedTables(dictionaries.map((dictionary) => dictionary.table))}>Seleccionar todas</button>
+            <label className="fin-field relative w-full min-w-48 sm:w-60">
+              <span className="sr-only">Buscar tablas</span>
+              <span className="relative">
+                <Search size={14} className="fin-muted absolute left-2 top-2" />
+                <input
+                  id="inputFilter_compare_tables"
+                  className="input input-bordered input-sm w-full pl-7"
+                  placeholder="Buscar tablas"
+                  value={tableFilter}
+                  onChange={(event) => {
+                    setTableFilter(event.target.value);
+                    setTablePage(1);
+                  }}
+                />
+              </span>
+            </label>
+            <label className="fin-field w-28">
+              <span className="sr-only">Filas por página</span>
+              <select
+                id="selectPageSize_compare_tables"
+                className="select select-bordered select-sm"
+                value={tablePageSize}
+                onChange={(event) => {
+                  setTablePageSize(Number(event.target.value));
+                  setTablePage(1);
+                }}
+              >
+                {[8, 10, 20, 50].map((size) => <option key={size} value={size}>{size} por página</option>)}
+              </select>
+            </label>
+            <button
+              id="btnView_compare_select_all"
+              type="button"
+              className="btn btn-xs"
+              disabled={filteredDictionaries.length === 0}
+              title={normalizedTableFilter ? "Selecciona todas las tablas que coinciden con el filtro" : "Selecciona todas las tablas"}
+              onClick={() => setSelectedTables(filteredDictionaries.map((dictionary) => dictionary.table))}
+            >
+              {normalizedTableFilter ? "Seleccionar filtradas" : "Seleccionar todas"} ({filteredDictionaries.length})
+            </button>
             <button id="btnView_compare_clear" type="button" className="btn btn-xs" onClick={() => setSelectedTables([])}>Limpiar selección</button>
             <button
               id="btnSave_compare_run"
@@ -376,10 +454,10 @@ export function CompareView() {
             </button>
           </div>
         </div>
-        <div className="max-h-40 overflow-auto rounded-lg border">
+        <div className="max-h-[min(60vh,40rem)] overflow-auto rounded-lg border">
           <table className="table table-xs table-pin-rows">
             <thead><tr><th>Seleccionar</th><th>Tabla</th><th>Descripción</th><th>Columnas</th><th>Clave</th></tr></thead>
-            <tbody>{orderedDictionaries.map((dictionary) => (
+            <tbody>{visibleDictionaries.map((dictionary) => (
               <tr key={dictionary.table}>
                 <td><input type="checkbox" className="checkbox checkbox-sm" checked={selectedTables.includes(dictionary.table)} onChange={(event) => setSelectedTables((current) => event.target.checked ? [...current, dictionary.table] : current.filter((table) => table !== dictionary.table))} /></td>
                 <td className="font-code">{dictionary.table}</td>
@@ -390,18 +468,54 @@ export function CompareView() {
             ))}</tbody>
           </table>
         </div>
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+          <p className="fin-muted">
+            {filteredDictionaries.length === 0
+              ? "Sin tablas coincidentes"
+              : `${(currentTablePage - 1) * tablePageSize + 1}–${Math.min(currentTablePage * tablePageSize, filteredDictionaries.length)} de ${filteredDictionaries.length} tablas`}
+            {selectedTables.length > 0 ? ` · ${selectedTables.length} seleccionadas` : ""}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              id="btnView_compare_tables_previous"
+              type="button"
+              className="btn btn-ghost btn-sm btn-square"
+              title="Página anterior"
+              aria-label="Página anterior"
+              disabled={currentTablePage <= 1}
+              onClick={() => setTablePage((page) => Math.max(1, page - 1))}
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <span className="fin-muted tabular-nums">{currentTablePage} / {tablePageCount}</span>
+            <button
+              id="btnView_compare_tables_next"
+              type="button"
+              className="btn btn-ghost btn-sm btn-square"
+              title="Página siguiente"
+              aria-label="Página siguiente"
+              disabled={currentTablePage >= tablePageCount}
+              onClick={() => setTablePage((page) => Math.min(tablePageCount, page + 1))}
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        </div>
       </section>
 
-      {schemaProgress ? (
+      {comparisonProgress ? (
         <div className="space-y-1" role="status">
           <div className="flex flex-wrap justify-between gap-2 text-xs">
-            <span>Analizando esquema: {schemaProgress.table}</span>
-            <span>{schemaProgress.completed} / {schemaProgress.total} tabla(s)</span>
+            <span>
+              {mode === "schema" ? "Schema" : mode === "volume" ? "Volumen" : "Fila a fila"}: {comparisonProgress.table}
+            </span>
+            <span>{comparisonProgress.completed} / {comparisonProgress.total} tablas completadas</span>
           </div>
           <progress
             className="progress progress-primary w-full"
-            value={schemaProgress.completed}
-            max={Math.max(schemaProgress.total, 1)}
+            value={comparisonProgress.completed}
+            max={Math.max(comparisonProgress.total, 1)}
+            aria-label={`${comparisonProgress.completed} de ${comparisonProgress.total} tablas completadas`}
           />
         </div>
       ) : null}

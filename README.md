@@ -46,6 +46,10 @@ A **source** is an ODBC DSN plus metadata in SQLite. You pick **origen** and **d
 
 Schemas for volume/row compare are **not** the DSN: they are `--source-schema` / `--target-schema` (UI: esquema origen / destino).
 
+The comparison table list supports search and pagination. Opening a row-difference
+detail and returning restores the filter, page size, current page, selected tables,
+comparison mode, DSNs and current results.
+
 ### Primary keys in local dictionaries
 
 `scripts/az7dbkeys.csv` defines ordered key columns by table name. Preview the update without writing:
