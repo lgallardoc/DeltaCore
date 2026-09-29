@@ -104,7 +104,7 @@ The shared `StatusProvider` renders transient notifications at the viewport bott
 
 Volume results are rendered in a single table, one result row per selected table, with source/target record counts, record delta, physical size per side, and size delta. Row results are rendered in a single table with navigable counts for each difference category. `RowDelta.details` preserves all changed, source-only, and target-only records within the row limit, while `samples` remains available for compatibility.
 
-Row detail pages receive an explicit `SmartBackState.compare` snapshot. They return to `/compare` with mode, DSNs, limit, selected tables, and result rows restored. On entry they refresh the source dictionary and data-source names so the current local descriptions and DSN labels appear in the detail table. Changed cells display source and target values plus a visible difference marker; the key column and header remain pinned during scrolling.
+Row detail pages receive an explicit `SmartBackState.compare` snapshot. They return to `/compare` with mode, DSNs, limit, selected tables, and result rows restored. On entry they refresh the source dictionary and data-source names so the current local descriptions and DSN labels appear in the detail table. Changed cells display source and target values plus a visible difference marker; the key column and header remain pinned during scrolling. Changed-row details provide a case-insensitive partial-value filter for each PrimaryKey column; multiple active filters combine with AND. SQL homologation scripts are generated only for visible rows, and their modal shows an operator-responsibility and active-certification/test warning before either script is copied.
 
 Frontend: `/compare`, `/dictionary`, `/catalog`, `/jobs`.
 
@@ -146,6 +146,7 @@ Container-internal Keycloak HTTP remains `8080`; only the **host** port is confi
 - Changing the SPA port without updating Keycloak client redirect URIs will fail OIDC login.
 - `GET /health` on the API is unauthenticated and used by `npm run status`.
 - SQLite file: `apps/backend/data/deltacore.db` (gitignored). Re-seed with `npm run init:db` on a new file.
+- SQLite connections wait up to 10 seconds for a database lock during startup initialization, avoiding immediate failure when another process briefly holds the file.
 
 ## Authentication and RBAC
 

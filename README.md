@@ -368,7 +368,9 @@ The migration preserves existing `biz_*` data.
 
 Volume returns a consolidated table with one row per selected table: description, origin and target record counts, record delta, origin and target physical sizes, and size delta. IBM i physical size comes from `QSYS2.SYSTABLESTAT.DATA_SIZE` and is presented using Chilean numeric formatting.
 
-Row comparison returns a consolidated table with record counts and links for changed rows, rows only in origin, and rows only in target. Each link opens a detail page for that table and category. Changed-row details display the origin value on the first line and target value on the second line; changed cells carry an alert marker. The first key column remains fixed while scrolling. Detail pages resolve the local source dictionary and source metadata again so current table/field descriptions and assigned DSN names are visible.
+Row comparison returns a consolidated table with record counts and links for changed rows, rows only in origin, and rows only in target. Each link opens a detail page for that table and category. Changed-row details display the origin value on the first line and target value on the second line; changed cells carry an alert marker. The first key column remains fixed while scrolling. Detail pages resolve the local source dictionary and source metadata again so current table/field descriptions and assigned DSN names are visible. Changed-row details can be filtered by one or more PrimaryKey values using case-insensitive partial matches; filters combine across key columns and the SQL generator uses only the visible rows.
+
+The SQL homologation modal displays a warning that execution is at the responsible operator's discretion, who must assess risks and take appropriate precautions, especially while certifications or tests are running. Review both generated scripts before executing them.
 
 Every detail page with **Volver** returns to `/compare` with the original mode, DSNs, limit, selected tables, and results restored.
 

@@ -39,6 +39,7 @@ export function RowDetailView() {
   const [sourceName, setSourceName] = useState(state?.sourceName ?? "");
   const [targetName, setTargetName] = useState(state?.targetName ?? "");
   const [showScript, setShowScript] = useState(false);
+  const [scriptRows, setScriptRows] = useState<RowChange[]>([]);
   const [targetSchema, setTargetSchema] = useState(state?.targetSchema ?? "");
   const [scriptBusy, setScriptBusy] = useState(false);
   const [scriptError, setScriptError] = useState("");
@@ -122,7 +123,7 @@ export function RowDetailView() {
           targetDsn={detailState.targetDsn}
           sourceName={sourceName}
           targetName={targetName}
-          onGenerateScript={() => void openScript()}
+          onGenerateScript={(visibleRows) => void openScript(visibleRows)}
           canRun={canRun}
         />
       ) : (
@@ -136,7 +137,7 @@ export function RowDetailView() {
         <SqlScriptModal
           table={detailState.table ?? ""}
           targetSchema={targetSchema}
-          rows={rows as RowChange[]}
+          rows={scriptRows}
           keyColumns={detailState.rowDelta.keyColumns}
           busy={scriptBusy}
           error={scriptError}
@@ -146,7 +147,8 @@ export function RowDetailView() {
     </section>
   );
 
-  async function openScript() {
+  async function openScript(visibleRows: RowChange[]) {
+    setScriptRows(visibleRows);
     setShowScript(true);
     setScriptError("");
     if (targetSchema) {
@@ -198,12 +200,18 @@ function ChangedRowsTable({
   targetDsn?: string;
   sourceName?: string;
   targetName?: string;
-  onGenerateScript: () => void;
+  onGenerateScript: (visibleRows: RowChange[]) => void;
   canRun: boolean;
 }) {
   // Key columns (dictionary PK order) are pinned to the left; the rest follow in their original order.
+  const [keyFilters, setKeyFilters] = useState<Record<string, string>>({});
   const keySet = new Set(delta.keyColumns.map((column) => column.toUpperCase()));
   const restColumns = delta.comparedColumns.filter((column) => !keySet.has(column.toUpperCase()));
+  const filteredRows = rows.filter((row) => delta.keyColumns.every((column) => {
+    const filter = keyFilters[column]?.trim().toLocaleLowerCase();
+    return !filter || (row.key[column] ?? "").toLocaleLowerCase().includes(filter);
+  }));
+  const hasActiveFilters = delta.keyColumns.some((column) => keyFilters[column]?.trim());
   return (
     <>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -212,10 +220,35 @@ function ChangedRowsTable({
           <span className="dc-target font-semibold">Destino ({targetDsn || "no disponible"}{targetName ? ` · ${targetName}` : ""}): segunda línea</span>
           <span className="flex items-center gap-1 font-semibold text-amber-800"><CircleAlert size={14} /> Campo con diferencia</span>
         </div>
-        <button id="btnSave_rows_sql" type="button" className="btn btn-sm" onClick={onGenerateScript} disabled={!canRun || rows.length === 0} title="Generar UPDATE y rollback para el destino">
+        <button id="btnSave_rows_sql" type="button" className="btn btn-sm" onClick={() => onGenerateScript(filteredRows)} disabled={!canRun || filteredRows.length === 0} title="Generar UPDATE y rollback para las filas visibles">
           <FileCode2 size={14} /> Generar SQL
         </button>
       </div>
+      {delta.keyColumns.length > 0 ? (
+        <div className="flex flex-wrap items-end gap-3">
+          {delta.keyColumns.map((column) => (
+            <label key={column} className="fin-field min-w-40 max-w-xs flex-1">
+              <span>Filtrar {column}</span>
+              <input
+                type="search"
+                className="input input-bordered input-sm w-full"
+                value={keyFilters[column] ?? ""}
+                placeholder="Valor de PrimaryKey"
+                aria-label={`Filtrar por ${column}`}
+                onChange={(event) => setKeyFilters((current) => ({ ...current, [column]: event.target.value }))}
+              />
+            </label>
+          ))}
+          <span className="fin-muted pb-2 text-xs" aria-live="polite">
+            {filteredRows.length} de {rows.length} filas
+          </span>
+          {hasActiveFilters ? (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setKeyFilters({})}>
+              <X size={14} /> Limpiar filtros
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       <div className="max-h-[32rem] overflow-auto rounded-lg border">
         <table className="table table-xs table-pin-rows">
         <thead>
@@ -235,7 +268,7 @@ function ChangedRowsTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, index) => {
+          {filteredRows.map((row, index) => {
             const changed = new Set(row.columns.map((column) => column.column.toUpperCase()));
             return (
               <tr key={index}>
@@ -262,6 +295,13 @@ function ChangedRowsTable({
               </tr>
             );
           })}
+          {filteredRows.length === 0 ? (
+            <tr>
+              <td colSpan={delta.comparedColumns.length} className="py-6 text-center fin-muted">
+                No hay filas que coincidan con los valores de PrimaryKey.
+              </td>
+            </tr>
+          ) : null}
         </tbody>
         </table>
       </div>
@@ -306,6 +346,9 @@ function SqlScriptModal({
             <p className="fin-muted text-xs">Actualización del destino desde el origen y rollback a los valores originales.</p>
           </div>
           <button id="btnView_rows_close" type="button" className="btn btn-sm" onClick={onClose} title="Cerrar scripts"><X size={16} /></button>
+        </div>
+        <div role="note" className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          <strong>Advertencia:</strong> La ejecución de la homologación queda sujeta al criterio del responsable de realizarla, quien deberá verificar los riesgos asociados y tomar las precauciones correspondientes, especialmente ante certificaciones o pruebas que se encuentren en ejecución.
         </div>
         {busy ? <p className="py-8 text-center text-sm">Resolviendo esquema destino...</p> : null}
         {error ? <p className="py-8 text-center text-sm text-red-700">{error}</p> : null}

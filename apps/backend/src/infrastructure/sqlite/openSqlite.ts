@@ -9,6 +9,7 @@ export function openSqlite(): DatabaseSync {
   const dataDir = path.resolve(here, "../../../data");
   mkdirSync(dataDir, { recursive: true });
   const db = new DatabaseSync(path.join(dataDir, "deltacore.db"));
+  db.exec("PRAGMA busy_timeout = 10000");
   db.exec("PRAGMA foreign_keys = ON");
   db.exec(readFileSync(path.resolve(here, "../sql-dialects/sqlite/init-schema.sql"), "utf8"));
   for (const column of ["can_create", "can_edit", "can_delete", "can_save", "can_run"]) {

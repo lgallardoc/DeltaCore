@@ -1,8 +1,11 @@
 export const CURRENT_RELEASE = {
-  version: "1.2.3",
-  date: "2026-09-28",
-  title: "Correcciones de catálogo Db2 for i",
+  version: "1.2.4",
+  date: "2026-09-29",
+  title: "Filtros de PrimaryKey y homologación segura",
   changes: [
+    "Filtros parciales y combinables por PrimaryKey en el detalle de filas cambiadas; Generar SQL considera solo las filas visibles.",
+    "Advertencia de responsabilidad y precauciones antes de copiar scripts SQL de homologación.",
+    "Espera SQLite de hasta 10 segundos ante bloqueos transitorios durante el arranque.",
     "Corrección de consulta de primary keys IBM i: el tipo de constraint se obtiene desde SYSCST y sus columnas ordenadas desde SYSKEYCST.",
     "Panel de Actividad con uso por periodo, sesiones, páginas, operaciones, errores y recurrencia por usuario.",
     "Historial de actividad con búsqueda, filtros y paginación en servidor.",

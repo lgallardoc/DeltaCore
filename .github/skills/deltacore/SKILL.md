@@ -39,6 +39,7 @@ argument-hint: "Describe the DeltaCore feature, failure, or workflow to work on"
 4. For IBM i Volume queries, return both `COUNT(*)` and `QSYS2.SYSTABLESTAT.DATA_SIZE`; display records and sizes with `es-CL` formatting.
 5. Preserve all Row Delta category details within the requested limit. Link nonzero category counts to a detail page; highlight each changed field and identify source versus target values.
 6. Pass a `SmartBackState.compare` snapshot into row-detail links so **Volver** restores DSNs, mode, limit, selected tables, and results.
+7. In changed-row details, provide case-insensitive partial filters for each PrimaryKey column; combine multiple filters with AND and generate SQL only for visible rows. Show the homologation responsibility and active-certification/test warning in the SQL modal.
 
 ## Validation
 
