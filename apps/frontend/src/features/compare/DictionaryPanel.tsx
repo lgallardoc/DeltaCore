@@ -14,6 +14,7 @@ export type DictionaryRecord = {
   sourceDsn?: string;
   columns: Array<ColumnInfo & {
     isKey?: boolean;
+    isFlag?: boolean;
     dataType?: string;
     length?: string;
     scale?: string;
@@ -198,7 +199,7 @@ export function DictionaryPanel({
         ),
         rowCount: Number(response.data.rowCount ?? candidate.rowCount ?? 0),
         columns: (response.data.columns ?? []).map(
-          (column: ColumnInfo & { isKey?: boolean }) => ({ ...column, isKey: false }),
+          (column: ColumnInfo & { isKey?: boolean; isFlag?: boolean }) => ({ ...column, isKey: false, isFlag: Boolean(column.isFlag) }),
         ),
         keyColumns: (response.data.keyColumns ?? []).filter(Boolean),
       };
@@ -217,6 +218,7 @@ export function DictionaryPanel({
             columns: data.columns.map((column) => ({
               ...column,
               isKey: false,
+              isFlag: Boolean(column.isFlag),
             })),
           });
           data = { ...data, ...savedResponse.data, origin: "saved" };
@@ -299,9 +301,10 @@ export function DictionaryPanel({
             tableDescription: String(response.data.tableDescription ?? ""),
             rowCount: Number(response.data.rowCount ?? 0),
             columns: (response.data.columns ?? []).map(
-              (column: ColumnInfo & { isKey?: boolean }) => ({
+              (column: ColumnInfo & { isKey?: boolean; isFlag?: boolean }) => ({
                 ...column,
                 isKey: Boolean(column.isKey),
+                isFlag: Boolean(column.isFlag),
               }),
             ),
             keyColumns: [] as string[],
@@ -477,6 +480,7 @@ export function DictionaryPanel({
         columns: columns.map((column) => ({
           ...column,
           isKey: Boolean(column.isKey),
+          isFlag: Boolean(column.isFlag),
         })),
       });
       setOrigin("saved");
@@ -688,6 +692,7 @@ export function DictionaryPanel({
             <thead>
               <tr>
                 <th className="w-20">Clave</th>
+                <th className="w-20">Flag</th>
                 <th>Campo</th>
                 <th>Descripción (diccionario)</th>
                 <th>Tipo</th>
@@ -708,6 +713,24 @@ export function DictionaryPanel({
                         onChange={() => toggleKey(column.columnName)}
                       />
                       PK
+                    </label>
+                  </td>
+                  <td>
+                    <label className="flex cursor-pointer items-center gap-2 text-xs">
+                      <input
+                        type="checkbox"
+                        className="checkbox checkbox-sm"
+                        checked={Boolean(column.isFlag)}
+                        disabled={!canEdit}
+                        onChange={() => publish(
+                          columns.map((item) =>
+                            item.columnName === column.columnName
+                              ? { ...item, isFlag: !item.isFlag }
+                              : item,
+                          ),
+                        )}
+                      />
+                      FLAG
                     </label>
                   </td>
                   <td className="font-code">{column.columnName}</td>
@@ -735,7 +758,7 @@ export function DictionaryPanel({
               ))}
               {columns.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center">
+                  <td colSpan={7} className="py-8 text-center">
                     <p className="font-semibold">Aún no hay columnas</p>
                     <p className="fin-muted mx-auto mt-1 max-w-md text-sm">
                       Pulse «Cargar desde catálogo» para traer el diccionario de Db2, marque

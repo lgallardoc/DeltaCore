@@ -91,6 +91,7 @@ CREATE TABLE IF NOT EXISTS biz_data_dictionary_columns (
   scale TEXT NOT NULL DEFAULT '',
   nullable TEXT NOT NULL DEFAULT '',
   is_key INTEGER NOT NULL DEFAULT 0,
+  is_flag INTEGER NOT NULL DEFAULT 0,
   key_order INTEGER,
   sort_order INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (dictionary_id, column_name)

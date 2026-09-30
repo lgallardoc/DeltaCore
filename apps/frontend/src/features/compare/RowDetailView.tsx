@@ -1,5 +1,6 @@
-import { ArrowLeft, CircleAlert, Clipboard, FileCode2, X } from "lucide-react";
+import { ArrowLeft, CircleAlert, Clipboard, Eye, FileCode2, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import type { CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { RowChange, RowDelta, RowValueMap } from "@deltacore/shared";
@@ -9,10 +10,13 @@ import { usePermissions } from "../../auth/usePermissions";
 import type { SmartBackState } from "../../navigation/smartBack";
 
 type RowKind = "changed" | "onlyInSource" | "onlyInTarget";
+type ScriptRow = { kind: RowKind; row: RowChange | RowValueMap };
+type FlagDefinition = { flagNumber: number; description: string; validValues: string };
 type RowDetailState = SmartBackState & {
   kind: RowKind;
   rowDelta: RowDelta;
   labels?: Record<string, string>;
+  flagColumns?: string[];
   table?: string;
   tableDescription?: string;
   sourceDsn?: string;
@@ -35,51 +39,97 @@ export function RowDetailView() {
   const { canRun } = usePermissions("COMPARE");
   const state = useLocation().state as RowDetailState | null;
   const [labels, setLabels] = useState<Record<string, string>>(state?.labels ?? {});
+  const [flagDefinitions, setFlagDefinitions] = useState<Record<string, FlagDefinition[]>>({});
+  const [flaggedColumns, setFlaggedColumns] = useState<string[]>(state?.flagColumns ?? []);
+  const [flagSourceRowCount, setFlagSourceRowCount] = useState<number | null>(null);
   const [tableDescription, setTableDescription] = useState(state?.tableDescription ?? "");
   const [sourceName, setSourceName] = useState(state?.sourceName ?? "");
   const [targetName, setTargetName] = useState(state?.targetName ?? "");
   const [showScript, setShowScript] = useState(false);
-  const [scriptRows, setScriptRows] = useState<RowChange[]>([]);
+  const [scriptRows, setScriptRows] = useState<ScriptRow[]>([]);
   const [targetSchema, setTargetSchema] = useState(state?.targetSchema ?? "");
   const [scriptBusy, setScriptBusy] = useState(false);
   const [scriptError, setScriptError] = useState("");
 
   useEffect(() => {
-    if (!state?.sourceDsn || !state.table) {
+    setFlagDefinitions({});
+    setFlagSourceRowCount(null);
+    setFlaggedColumns(state?.flagColumns ?? []);
+    if (!state?.table) {
       return;
     }
     let cancelled = false;
-    void Promise.all([
-      apiClient.get<{
-        dictionaries?: Array<{
-          table: string;
-          tableDescription?: string;
-          columns?: Array<{ columnName: string; description?: string }>;
-        }>;
-      }>("/dictionary", { params: { dsn: state.sourceDsn } }),
-      apiClient.get<{ sources?: Array<{ dsn: string; name: string }> }>("/data-sources"),
-    ]).then(([dictionaryResponse, sourcesResponse]) => {
-      if (cancelled) {
+    const knownFlagged = (state.flagColumns ?? []).map((column) => column.toUpperCase());
+    const loadFlagDefinitions = (columns: string[]) => {
+      if (columns.length === 0) {
         return;
       }
-      const dictionary = dictionaryResponse.data.dictionaries?.find(
-        (item) => item.table.toUpperCase() === state.table?.toUpperCase(),
-      );
-      if (dictionary) {
-        setTableDescription(dictionary.tableDescription?.trim() ?? "");
-        setLabels(
-          Object.fromEntries(
-            (dictionary.columns ?? []).map((column) => [
-              column.columnName.toUpperCase(),
-              column.description?.trim() ?? "",
-            ]),
-          ),
-        );
-      }
-      const sources = sourcesResponse.data.sources ?? [];
-      setSourceName(sources.find((source) => source.dsn === state.sourceDsn)?.name ?? "");
-      setTargetName(sources.find((source) => source.dsn === state.targetDsn)?.name ?? "");
-    }).catch(() => undefined);
+      void apiClient.get<{ definitions?: FlagDefinition[]; rowCount?: number }>("/dictionary/flags", {
+        params: { table: state.table },
+      })
+        .then(({ data }) => {
+          if (!cancelled) {
+            const definitions = data.definitions ?? [];
+            setFlagSourceRowCount(data.rowCount ?? null);
+            setFlagDefinitions(Object.fromEntries(columns.map((column) => [column, definitions])));
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setFlagDefinitions({});
+          }
+        });
+    };
+    if (knownFlagged.length > 0) {
+      loadFlagDefinitions(knownFlagged);
+    }
+    if (state.sourceDsn) {
+      void apiClient.get<{
+      tableDescription?: string;
+      columns?: Array<{ columnName: string; description?: string; isFlag?: boolean }>;
+    }>("/dictionary", {
+      params: {
+        dsn: state.sourceDsn,
+        table: state.table,
+        ...(state.sourceSchema ? { schema: state.sourceSchema } : {}),
+      },
+    })
+      .then(async (dictionaryResponse) => {
+        if (cancelled) {
+          return;
+        }
+        const dictionary = dictionaryResponse.data;
+        if (dictionary) {
+          const discoveredFlags = (dictionary.columns ?? [])
+            .filter((column) => column.isFlag)
+            .map((column) => column.columnName.toUpperCase());
+          if (knownFlagged.length === 0) {
+            setFlaggedColumns(discoveredFlags);
+            loadFlagDefinitions(discoveredFlags);
+          }
+          setTableDescription(dictionary.tableDescription?.trim() ?? "");
+          setLabels(
+            Object.fromEntries(
+              (dictionary.columns ?? []).map((column) => [
+                column.columnName.toUpperCase(),
+                column.description?.trim() ?? "",
+              ]),
+            ),
+          );
+        }
+      })
+        .catch(() => undefined);
+    }
+    void apiClient.get<{ sources?: Array<{ dsn: string; name: string }> }>("/data-sources")
+      .then(({ data }) => {
+        if (cancelled) {
+          return;
+        }
+        const sources = data.sources ?? [];
+        setSourceName(sources.find((source) => source.dsn === state.sourceDsn)?.name ?? "");
+        setTargetName(sources.find((source) => source.dsn === state.targetDsn)?.name ?? "");
+      })
+      .catch(() => undefined);
     return () => {
       cancelled = true;
     };
@@ -119,18 +169,23 @@ export function RowDetailView() {
           rows={rows as RowChange[]}
           delta={detailState.rowDelta}
           labels={labelMap}
+          flagDefinitions={flagDefinitions}
+          flaggedColumns={flaggedColumns}
+          flagSourceRowCount={flagSourceRowCount}
           sourceDsn={detailState.sourceDsn}
           targetDsn={detailState.targetDsn}
           sourceName={sourceName}
           targetName={targetName}
-          onGenerateScript={(visibleRows) => void openScript(visibleRows)}
-          canRun={canRun}
+          onGenerateScript={(visibleRows) => void openScript("changed", visibleRows)}
+          canRun={canRun && detailState.rowDelta.keyColumns.length > 0}
         />
       ) : (
         <SingleSideRowsTable
           rows={rows as RowValueMap[]}
           columns={detailState.rowDelta.comparedColumns}
           labels={labelMap}
+          canRun={canRun && detailState.rowDelta.keyColumns.length > 0}
+          onGenerateScript={(visibleRows) => void openScript(detailState.kind, visibleRows)}
         />
       )}
       {showScript ? (
@@ -147,8 +202,8 @@ export function RowDetailView() {
     </section>
   );
 
-  async function openScript(visibleRows: RowChange[]) {
-    setScriptRows(visibleRows);
+  async function openScript(kind: RowKind, visibleRows: Array<RowChange | RowValueMap>) {
+    setScriptRows(visibleRows.map((row) => ({ kind, row })));
     setShowScript(true);
     setScriptError("");
     if (targetSchema) {
@@ -186,6 +241,9 @@ function ChangedRowsTable({
   rows,
   delta,
   labels,
+  flagDefinitions,
+  flaggedColumns,
+  flagSourceRowCount,
   sourceDsn,
   targetDsn,
   sourceName,
@@ -196,6 +254,9 @@ function ChangedRowsTable({
   rows: RowChange[];
   delta: RowDelta;
   labels: Map<string, string>;
+  flagDefinitions: Record<string, FlagDefinition[]>;
+  flaggedColumns: string[];
+  flagSourceRowCount: number | null;
   sourceDsn?: string;
   targetDsn?: string;
   sourceName?: string;
@@ -211,6 +272,10 @@ function ChangedRowsTable({
     const filter = keyFilters[column]?.trim().toLocaleLowerCase();
     return !filter || (row.key[column] ?? "").toLocaleLowerCase().includes(filter);
   }));
+  const flagColumns = delta.comparedColumns.filter(
+    (column) => flaggedColumns.includes(column.toUpperCase()),
+  );
+  const [flagRow, setFlagRow] = useState<RowChange | null>(null);
   const hasActiveFilters = delta.keyColumns.some((column) => keyFilters[column]?.trim());
   return (
     <>
@@ -265,6 +330,7 @@ function ChangedRowsTable({
             {restColumns.map((column) => (
               <ColumnHeader key={column} column={column} labels={labels} />
             ))}
+            {flagColumns.length > 0 ? <th>Parseo</th> : null}
           </tr>
         </thead>
         <tbody>
@@ -292,12 +358,25 @@ function ChangedRowsTable({
                     </td>
                   );
                 })}
+                {flagColumns.length > 0 ? (
+                  <td>
+                    <button
+                      type="button"
+                      className="btn btn-xs"
+                      aria-label={`Parsear FLAG de ${delta.keyColumns.map((column) => row.key[column] ?? "").join(" ")}`}
+                      title="Parsear valores FLAG de esta fila"
+                      onClick={() => setFlagRow(row)}
+                    >
+                      <Eye size={13} /> Parsear
+                    </button>
+                  </td>
+                ) : null}
               </tr>
             );
           })}
           {filteredRows.length === 0 ? (
             <tr>
-              <td colSpan={delta.comparedColumns.length} className="py-6 text-center fin-muted">
+              <td colSpan={delta.comparedColumns.length + (flagColumns.length > 0 ? 1 : 0)} className="py-6 text-center fin-muted">
                 No hay filas que coincidan con los valores de PrimaryKey.
               </td>
             </tr>
@@ -305,8 +384,152 @@ function ChangedRowsTable({
         </tbody>
         </table>
       </div>
+      {flagRow ? (
+        <FlagParseModal
+          row={flagRow}
+          keyColumns={delta.keyColumns}
+          flagColumns={flagColumns}
+          flagDefinitions={flagDefinitions}
+          sourceRowCount={flagSourceRowCount}
+          onClose={() => setFlagRow(null)}
+        />
+      ) : null}
     </>
   );
+}
+
+function FlagParseModal({
+  row,
+  keyColumns,
+  flagColumns,
+  flagDefinitions,
+  sourceRowCount,
+  onClose,
+}: {
+  row: RowChange;
+  keyColumns: string[];
+  flagColumns: string[];
+  flagDefinitions: Record<string, FlagDefinition[]>;
+  sourceRowCount: number | null;
+  onClose: () => void;
+}) {
+  const definitionEntries = flagColumns.flatMap((column) =>
+    (flagDefinitions[column.toUpperCase()] ?? []).map((definition) => ({ column, definition })),
+  );
+  const entries = flagColumns.flatMap((column) => {
+    const source = row.sourceRow[column] ?? "";
+    const target = row.targetRow[column] ?? "";
+    const definitions = new Map(
+      (flagDefinitions[column.toUpperCase()] ?? []).map((definition) => [definition.flagNumber, definition]),
+    );
+    const positions = Math.max(Array.from(source).length, Array.from(target).length, ...definitions.keys());
+    return Array.from({ length: positions }, (_, index) => {
+      const flagNumber = index + 1;
+      const definition = definitions.get(flagNumber);
+      const sourceValue = flagCharacter(source, flagNumber);
+      const targetValue = flagCharacter(target, flagNumber);
+      return {
+        column,
+        flagNumber,
+        description: definition?.description ?? "Definición AZUFD no disponible",
+        validValues: definition?.validValues ?? "",
+        sourceValue,
+        targetValue,
+      };
+    }).filter((entry) => definitions.has(entry.flagNumber) || entry.sourceValue !== "—" || entry.targetValue !== "—");
+  });
+  const [showDifferencesOnly, setShowDifferencesOnly] = useState(false);
+  const differingEntries = entries.filter((entry) => entry.sourceValue !== entry.targetValue);
+  const visibleEntries = showDifferencesOnly ? differingEntries : entries;
+  return createPortal((
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-label="Parseo de campos FLAG">
+      <div className="fin-panel flex max-h-[85vh] w-full max-w-6xl flex-col rounded-lg border p-4">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-base font-bold">Parseo de campos FLAG</h3>
+            <p className="fin-muted text-xs">{keyColumns.map((column) => `${column}=${row.key[column] ?? ""}`).join(" · ")}</p>
+          </div>
+          <button id="btnView_rows_flags_close" type="button" className="btn btn-sm" onClick={onClose} title="Cerrar parseo FLAG"><X size={16} /></button>
+        </div>
+        {definitionEntries.length === 0 ? (
+          <p role="status" className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+            {sourceRowCount === null
+              ? "No se pudo consultar AZUFD. Se muestran las posiciones no vacías de esta fila sin descripción."
+              : sourceRowCount === 0
+                ? "La consulta a AZUFD no devolvió filas para esta tabla. Se muestran las posiciones no vacías de esta fila sin descripción."
+                : `AZUFD devolvió ${sourceRowCount} fila(s), pero no se pudieron interpretar sus números de flag entre 1 y 128. Se muestran las posiciones no vacías de esta fila sin descripción.`}
+          </p>
+        ) : null}
+        <div className="mb-2 flex justify-end">
+          <div className="join" role="group" aria-label="Filtrar campos FLAG">
+            <button
+              type="button"
+              className={`btn btn-sm join-item ${!showDifferencesOnly ? "fin-btn-primary" : ""}`}
+              aria-pressed={!showDifferencesOnly}
+              onClick={() => setShowDifferencesOnly(false)}
+            >
+              Todos ({entries.length})
+            </button>
+            <button
+              type="button"
+              className={`btn btn-sm join-item ${showDifferencesOnly ? "fin-btn-primary" : ""}`}
+              aria-pressed={showDifferencesOnly}
+              onClick={() => setShowDifferencesOnly(true)}
+            >
+              Solo diferencias ({differingEntries.length})
+            </button>
+          </div>
+        </div>
+        <div className="min-h-0 overflow-auto rounded-lg border">
+          <table className="table table-sm table-pin-rows">
+            <thead>
+              <tr>
+                <th>Número</th>
+                <th className="dc-origin">Valor origen</th>
+                <th>Descripción / valores válidos</th>
+                <th className="dc-target">Valor destino</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleEntries.map(({ column, flagNumber, description, validValues, sourceValue, targetValue }) => {
+                const valuesDiffer = sourceValue !== targetValue;
+                return (
+                  <tr key={`${column}-${flagNumber}`} className={valuesDiffer ? "bg-amber-100" : ""}>
+                    <td className="font-code">
+                      <span
+                        className={`inline-flex items-center gap-1 ${valuesDiffer ? "font-semibold text-amber-800" : ""}`}
+                        title={valuesDiffer ? "Valor distinto entre origen y destino" : undefined}
+                      >
+                        {String(flagNumber).padStart(3, "0")}
+                        {valuesDiffer ? <CircleAlert size={14} aria-label="Valor distinto entre origen y destino" /> : null}
+                      </span>
+                    </td>
+                    <td className="font-code">
+                      <div>{sourceValue}</div>
+                    </td>
+                    <td>
+                      <div>{description}</div>
+                      {validValues ? <div className="fin-muted whitespace-pre-wrap text-xs">{validValues}</div> : null}
+                    </td>
+                    <td className="font-code">
+                      <div>{targetValue}</div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {visibleEntries.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="py-6 text-center fin-muted">
+                    {showDifferencesOnly ? "No hay flags con diferencias entre origen y destino." : "No hay posiciones FLAG con valor."}
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  ), document.body);
 }
 
 function SqlScriptModal({
@@ -320,17 +543,17 @@ function SqlScriptModal({
 }: {
   table: string;
   targetSchema: string;
-  rows: RowChange[];
+  rows: ScriptRow[];
   keyColumns: string[];
   busy: boolean;
   error: string;
   onClose: () => void;
 }) {
   const applyScript = targetSchema
-    ? buildUpdateScript(table, targetSchema, rows, keyColumns, "sourceRow")
+    ? buildRowScript(table, targetSchema, rows, keyColumns, "apply")
     : "";
   const rollbackScript = targetSchema
-    ? buildUpdateScript(table, targetSchema, rows, keyColumns, "targetRow")
+    ? buildRowScript(table, targetSchema, rows, keyColumns, "rollback")
     : "";
 
   async function copyScript(script: string) {
@@ -372,24 +595,41 @@ function ScriptPanel({ title, script, onCopy }: { title: string; script: string;
   );
 }
 
-function buildUpdateScript(
+function buildRowScript(
   table: string,
   targetSchema: string,
-  rows: RowChange[],
+  rows: ScriptRow[],
   keyColumns: string[],
-  values: "sourceRow" | "targetRow",
+  action: "apply" | "rollback",
 ): string {
   const target = `${sqlIdentifier(targetSchema)}.${sqlIdentifier(table)}`;
-  const statements = rows.map((row) => {
-    const assignments = row.columns.map((column) =>
-      `  ${sqlIdentifier(column.column)} = ${sqlLiteral(row[values][column.column] ?? "")}`,
-    ).join(",\n");
+  const statements = rows.map(({ kind, row: data }) => {
+    if (kind === "changed") {
+      const row = data as RowChange;
+      const values = action === "apply" ? row.sourceRow : row.targetRow;
+      const assignments = row.columns.map((column) =>
+        `  ${sqlIdentifier(column.column)} = ${sqlLiteral(values[column.column] ?? "")}`,
+      ).join(",\n");
+      const where = keyColumns.map((column) =>
+        `  ${sqlIdentifier(column)} = ${sqlLiteral(row.key[column] ?? "")}`,
+      ).join("\n  AND ");
+      return `UPDATE ${target}\nSET\n${assignments}\nWHERE\n${where};`;
+    }
+
+    const sourceOnly = kind === "onlyInSource";
+    const insert = (action === "apply") === sourceOnly;
+    const values = data as RowValueMap;
+    if (insert) {
+      const columns = Object.keys(values);
+      return `INSERT INTO ${target} (${columns.map(sqlIdentifier).join(", ")})\nVALUES (${columns.map((column) => sqlLiteral(values[column] ?? "")).join(", ")});`;
+    }
     const where = keyColumns.map((column) =>
-      `  ${sqlIdentifier(column)} = ${sqlLiteral(row.key[column] ?? "")}`,
+      `  ${sqlIdentifier(column)} = ${sqlLiteral(values[column] ?? "")}`,
     ).join("\n  AND ");
-    return `UPDATE ${target}\nSET\n${assignments}\nWHERE\n${where};`;
+    return `DELETE FROM ${target}\nWHERE\n${where};`;
   });
-  return [`-- ${values === "sourceRow" ? "Homologar destino con origen" : "Rollback a valores originales de destino"}`, ...statements, "COMMIT;"].join("\n\n");
+  const title = action === "apply" ? "Homologar destino con origen" : "Rollback a valores originales de destino";
+  return [`-- ${title}`, ...statements, "COMMIT;"].join("\n\n");
 }
 
 function sqlIdentifier(value: string): string {
@@ -408,12 +648,22 @@ function SingleSideRowsTable({
   rows,
   columns,
   labels,
+  canRun,
+  onGenerateScript,
 }: {
   rows: RowValueMap[];
   columns: string[];
   labels: Map<string, string>;
+  canRun: boolean;
+  onGenerateScript: (visibleRows: RowValueMap[]) => void;
 }) {
   return (
+    <>
+    <div className="flex justify-end">
+      <button id="btnSave_rows_sql" type="button" className="btn btn-sm" onClick={() => onGenerateScript(rows)} disabled={!canRun || rows.length === 0} title="Generar SQL y rollback para las filas visibles">
+        <FileCode2 size={14} /> Generar SQL
+      </button>
+    </div>
     <div className="max-h-[32rem] overflow-auto rounded-lg border">
       <table className="table table-xs table-pin-rows">
         <thead><tr>{columns.map((column) => <ColumnHeader key={column} column={column} labels={labels} />)}</tr></thead>
@@ -424,7 +674,13 @@ function SingleSideRowsTable({
         </tbody>
       </table>
     </div>
+    </>
   );
+}
+
+function flagCharacter(value: string, flagNumber: number): string {
+  const character = Array.from(value)[flagNumber - 1];
+  return character?.trim() ? character : "—";
 }
 
 function ColumnHeader({

@@ -15,7 +15,7 @@ type DictionarySummary = {
   schema: string;
   table: string;
   tableDescription?: string;
-  columns?: ColumnInfo[];
+  columns?: Array<ColumnInfo & { isFlag?: boolean }>;
   keyColumns?: string[];
 };
 
@@ -525,8 +525,8 @@ export function CompareView() {
           results={results}
           dictionaries={dictionaries}
           tableDescriptions={tableDescriptions}
-          sourceDsn={sourceDsn}
-          targetDsn={targetDsn}
+          sourceDsn={sourceMeta?.dsn ?? ""}
+          targetDsn={targetMeta?.dsn ?? ""}
           sourceName={sourceMeta?.name}
           targetName={targetMeta?.name}
           compareSession={compareSession}
@@ -793,6 +793,9 @@ function RowComparisonSummary({
                     column.description ?? "",
                   ]),
                 ),
+                flagColumns: (dictionary?.columns ?? [])
+                  .filter((column) => column.isFlag)
+                  .map((column) => column.columnName.toUpperCase()),
                 table: result.table ?? "",
                 tableDescription: tableDescriptions[(result.table ?? "").toUpperCase()] ?? "",
                 sourceDsn,

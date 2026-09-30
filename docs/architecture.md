@@ -70,13 +70,14 @@ Schema resolution for unqualified tables uses `search_path` via `SchemaResolverS
 
 ## Dictionary (SQLite)
 
-Tables `biz_data_dictionaries` and `biz_data_dictionary_columns` (`is_key`). Store: `SqliteDictionaryStore`.
+Tables `biz_data_dictionaries` and `biz_data_dictionary_columns` (`is_key`, `is_flag`). Store: `SqliteDictionaryStore`.
 
 - **Write UI**: `/dictionary` only (`PUT /api/dictionary`).
 - **Read**: `GET /api/dictionary?table&schema&dsn` — SQLite first, then live `describeTable`.
+- **FLAG definitions**: columns marked `is_flag` are parsed by position in row details. `GET /api/dictionary/flags?table` reads descriptions and valid values from `AZBASWIT.AZUFD` on `db2-az7-p9-dev`.
 - **Row compare**: if the request has no `--key`, use SQLite key columns, else catalog PK, else all columns.
 
-`biz_data_dictionaries` persists `schema_name`, `table_name`, `table_description`, `row_count`, `source_dsn`, and update time. `biz_data_dictionary_columns` persists field name, description, type, length, scale, nullability, and key metadata. Existing databases receive missing dictionary metadata columns through conditional store migrations. The API supports deleting an individual dictionary by schema/table and all dictionaries associated with a DSN.
+`biz_data_dictionaries` persists `schema_name`, `table_name`, `table_description`, `row_count`, `source_dsn`, and update time. `biz_data_dictionary_columns` persists field name, description, type, length, scale, nullability, key metadata, and the FLAG marker. Existing databases receive missing dictionary metadata columns through conditional store migrations. The API supports deleting an individual dictionary by schema/table and all dictionaries associated with a DSN.
 
 ## Compare jobs
 
@@ -104,7 +105,7 @@ The shared `StatusProvider` renders transient notifications at the viewport bott
 
 Volume results are rendered in a single table, one result row per selected table, with source/target record counts, record delta, physical size per side, and size delta. Row results are rendered in a single table with navigable counts for each difference category. `RowDelta.details` preserves all changed, source-only, and target-only records within the row limit, while `samples` remains available for compatibility.
 
-Row detail pages receive an explicit `SmartBackState.compare` snapshot. They return to `/compare` with mode, DSNs, limit, selected tables, and result rows restored. On entry they refresh the source dictionary and data-source names so the current local descriptions and DSN labels appear in the detail table. Changed cells display source and target values plus a visible difference marker; the key column and header remain pinned during scrolling. Changed-row details provide a case-insensitive partial-value filter for each PrimaryKey column; multiple active filters combine with AND. SQL homologation scripts are generated only for visible rows, and their modal shows an operator-responsibility and active-certification/test warning before either script is copied.
+Row detail pages receive an explicit `SmartBackState.compare` snapshot. They return to `/compare` with mode, DSNs, limit, selected tables, and result rows restored. On entry they refresh the source dictionary and data-source names so the current local descriptions and DSN labels appear in the detail table. Changed cells display source and target values plus a visible difference marker; the key column and header remain pinned during scrolling. Changed-row details provide a case-insensitive partial-value filter for each PrimaryKey column; multiple active filters combine with AND. FLAG columns are marked in the dictionary, parsed into positional values, and enriched with AZUFD descriptions/valid values. The FLAG modal can filter to differences only and preserves populated positions without definitions. SQL homologation scripts are generated only for visible rows, and their modal shows an operator-responsibility and active-certification/test warning before either script is copied.
 
 Frontend: `/compare`, `/dictionary`, `/catalog`, `/jobs`.
 

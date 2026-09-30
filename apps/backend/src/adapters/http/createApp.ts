@@ -19,6 +19,9 @@ type DataSourceListItem = {
   searchPath: string[];
 };
 
+const FLAG_DICTIONARY_DSN = "db2-az7-p9-dev";
+const FLAG_DICTIONARY_SCHEMA = "AZBASWIT";
+
 export function createApp(deps: {
   engine: IComparisonEngine;
   openConnection: (dsn: string) => Promise<IOdbcConnection>;
@@ -346,6 +349,48 @@ export function createApp(deps: {
     });
   });
 
+  app.get("/api/dictionary/flags", async (req, res) => {
+    await withRbac(req, res, deps.verifyToken, deps.rbac, ["DICTIONARY", "COMPARE"], "canRead", async () => {
+      const table = queryString(req, "table").trim().toUpperCase();
+      if (!table) {
+        res.status(400).json({ error: "table is required" });
+        return;
+      }
+      const tableLiteral = table.replace(/'/g, "''");
+      let connection: IOdbcConnection;
+      try {
+        connection = await deps.openConnection(FLAG_DICTIONARY_DSN);
+      } catch {
+        res.status(502).json({ error: "No se pudieron cargar las definiciones FLAG desde AZUFD." });
+        return;
+      }
+      try {
+        const rows = await connection.query<Record<string, unknown>>(
+          `SELECT UFDNFL, UFDDSC, UFDVVL FROM ${FLAG_DICTIONARY_SCHEMA}.AZUFD WHERE UFDARC = '${tableLiteral}' ORDER BY UFDNFL`,
+        );
+        const definitions = rows.flatMap((row) => {
+          const valueFor = (name: string) =>
+            Object.entries(row).find(([key]) => key.toUpperCase() === name)?.[1];
+          const rawFlagNumber = valueFor("UFDNFL");
+          const flagNumber = Number(String(rawFlagNumber ?? "").trim());
+          if (!Number.isInteger(flagNumber) || flagNumber < 1 || flagNumber > 128) {
+            return [];
+          }
+          return [{
+            flagNumber,
+            description: String(valueFor("UFDDSC") ?? "").trim(),
+            validValues: String(valueFor("UFDVVL") ?? "").trim(),
+          }];
+        }).sort((left, right) => left.flagNumber - right.flagNumber);
+        res.json({ rowCount: rows.length, definitions });
+      } catch {
+        res.status(502).json({ error: "No se pudieron cargar las definiciones FLAG desde AZUFD." });
+      } finally {
+        await connection.close().catch(() => undefined);
+      }
+    });
+  });
+
   app.put("/api/dictionary", async (req, res) => {
     await withRbac(req, res, deps.verifyToken, deps.rbac, ["DICTIONARY", "CATALOG"], "canSave", async () => {
       const body = (req.body ?? {}) as {
@@ -383,6 +428,7 @@ export function createApp(deps: {
             scale: asTrimmed(row.scale),
             nullable: asTrimmed(row.nullable),
             isKey: Boolean(row.isKey ?? row.is_key),
+            isFlag: Boolean(row.isFlag ?? row.is_flag),
             keyOrder:
               typeof (row.keyOrder ?? row.key_order) === "number"
                 ? Number(row.keyOrder ?? row.key_order)

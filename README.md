@@ -360,15 +360,19 @@ ssh cllagc@fdesa01.falabella.cl 'cd /nodeapp/DeltaCore && test -f apps/frontend/
 
 The compiled initializer stages the current schema without requiring dev
 dependencies. The running backend applies conditional migrations such as
-`sys_role_permissions.can_run` when it opens SQLite; verify the result with
-`sqlite3 apps/backend/data/deltacore.db "PRAGMA table_info(sys_role_permissions);"`.
-The migration preserves existing `biz_*` data.
+`sys_role_permissions.can_run` and `biz_data_dictionary_columns.is_flag` when
+it opens SQLite; verify them with
+`sqlite3 apps/backend/data/deltacore.db "PRAGMA table_info(sys_role_permissions);"`
+and `sqlite3 apps/backend/data/deltacore.db "PRAGMA table_info(biz_data_dictionary_columns);"`.
+The migrations preserve existing `biz_*` data.
 
 ### Volume and row comparison UI
 
 Volume returns a consolidated table with one row per selected table: description, origin and target record counts, record delta, origin and target physical sizes, and size delta. IBM i physical size comes from `QSYS2.SYSTABLESTAT.DATA_SIZE` and is presented using Chilean numeric formatting.
 
 Row comparison returns a consolidated table with record counts and links for changed rows, rows only in origin, and rows only in target. Each link opens a detail page for that table and category. Changed-row details display the origin value on the first line and target value on the second line; changed cells carry an alert marker. The first key column remains fixed while scrolling. Detail pages resolve the local source dictionary and source metadata again so current table/field descriptions and assigned DSN names are visible. Changed-row details can be filtered by one or more PrimaryKey values using case-insensitive partial matches; filters combine across key columns and the SQL generator uses only the visible rows.
+
+Dictionary columns can be marked as FLAG. In changed-row details, **Parsear** opens a per-row modal with each flag position, its origin and target values, and the description/valid values from `AZBASWIT.AZUFD` on DSN `db2-az7-p9-dev`. The modal can show all positions or only differences; differing values are highlighted. Positions with values but no AZUFD definition remain visible.
 
 The SQL homologation modal displays a warning that execution is at the responsible operator's discretion, who must assess risks and take appropriate precautions, especially while certifications or tests are running. Review both generated scripts before executing them.
 

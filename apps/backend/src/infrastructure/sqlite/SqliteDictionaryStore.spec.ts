@@ -36,6 +36,7 @@ describe("SqliteDictionaryStore", () => {
           scale: "0",
           nullable: "N",
           isKey: true,
+          isFlag: true,
         },
         {
           columnNo: "2",
@@ -66,6 +67,7 @@ describe("SqliteDictionaryStore", () => {
     expect(found?.rowCount).toBe(42);
     expect(found?.keyColumns).toEqual(["CTXFUE", "CTXCTX"]);
     expect(found?.columns[2]?.description).toBe("Descripcion");
+    expect(found?.columns[0]?.isFlag).toBe(true);
     expect(store.get("", "ACCTX")?.schema).toBe("AZBASWQA");
   });
 

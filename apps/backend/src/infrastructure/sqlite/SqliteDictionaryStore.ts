@@ -10,6 +10,7 @@ export type DictionaryColumn = {
   scale: string;
   nullable: string;
   isKey: boolean;
+  isFlag?: boolean;
   keyOrder?: number;
 };
 
@@ -29,6 +30,7 @@ export type SavedDictionary = {
 export class SqliteDictionaryStore {
   constructor(private readonly db: DatabaseSync) {
     this.ensureKeyOrderColumn();
+    this.ensureFlagColumn();
     this.ensureTableDescriptionColumn();
     this.ensureRowCountColumn();
     this.ensureTableScopedDictionaryKey();
@@ -181,8 +183,8 @@ export class SqliteDictionaryStore {
     const insert = this.db.prepare(
       `INSERT INTO biz_data_dictionary_columns (
          dictionary_id, column_no, column_name, description, data_type,
-         length, scale, nullable, is_key, key_order, sort_order
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         length, scale, nullable, is_key, is_flag, key_order, sort_order
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     input.columns.forEach((column, index) => {
       const name = column.columnName.trim().toUpperCase();
@@ -199,6 +201,7 @@ export class SqliteDictionaryStore {
         column.scale ?? "",
         column.nullable ?? "",
         column.isKey ? 1 : 0,
+        column.isFlag ? 1 : 0,
         column.keyOrder ?? null,
         index,
       );
@@ -260,7 +263,7 @@ export class SqliteDictionaryStore {
       this.db
         .prepare(
            `SELECT column_no, column_name, description, data_type, length, scale,
-                    nullable, is_key, key_order
+                     nullable, is_key, is_flag, key_order
            FROM biz_data_dictionary_columns
            WHERE dictionary_id = ?
            ORDER BY sort_order, column_name`,
@@ -274,6 +277,7 @@ export class SqliteDictionaryStore {
         scale: string;
         nullable: string;
         is_key: number;
+        is_flag: number;
         key_order: number | null;
       }>
     ).map((column) => ({
@@ -285,6 +289,7 @@ export class SqliteDictionaryStore {
       scale: column.scale,
       nullable: column.nullable,
       isKey: Boolean(column.is_key),
+      isFlag: Boolean(column.is_flag),
       keyOrder: column.key_order ?? undefined,
     }));
     return {
@@ -313,6 +318,17 @@ export class SqliteDictionaryStore {
       .all() as Array<{ name: string }>;
     if (!columns.some((column) => column.name === "key_order")) {
       this.db.exec("ALTER TABLE biz_data_dictionary_columns ADD COLUMN key_order INTEGER");
+    }
+  }
+
+  private ensureFlagColumn(): void {
+    const columns = this.db
+      .prepare("PRAGMA table_info(biz_data_dictionary_columns)")
+      .all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === "is_flag")) {
+      this.db.exec(
+        "ALTER TABLE biz_data_dictionary_columns ADD COLUMN is_flag INTEGER NOT NULL DEFAULT 0",
+      );
     }
   }
 
