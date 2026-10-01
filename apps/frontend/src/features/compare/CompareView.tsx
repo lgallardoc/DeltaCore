@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { JobResult } from "@deltacore/shared";
+import type { JobResult, RowDelta } from "@deltacore/shared";
 import { ChevronLeft, ChevronRight, Play, Search } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { apiClient } from "../../auth/api.client";
@@ -124,22 +124,16 @@ export function CompareView() {
     () => sources.find((item) => item.name === targetDsn),
     [sources, targetDsn],
   );
-  const orderedDictionaries = [...dictionaries].sort((left, right) => {
-    const leftSelected = selectedTables.includes(left.table);
-    const rightSelected = selectedTables.includes(right.table);
-    if (leftSelected !== rightSelected) {
-      return leftSelected ? -1 : 1;
-    }
-    return left.table.localeCompare(right.table);
-  });
+  const orderedDictionaries = [...dictionaries].sort((left, right) => left.table.localeCompare(right.table));
+  const selectedDictionaries = orderedDictionaries.filter((dictionary) => selectedTables.includes(dictionary.table));
   const normalizedTableFilter = tableFilter.trim().toLocaleLowerCase();
   const filteredDictionaries = orderedDictionaries.filter((dictionary) =>
-    !normalizedTableFilter || [
+    !selectedTables.includes(dictionary.table) && (!normalizedTableFilter || [
       dictionary.schema,
       dictionary.table,
       dictionary.tableDescription ?? "",
       ...(dictionary.keyColumns ?? []),
-    ].join(" ").toLocaleLowerCase().includes(normalizedTableFilter),
+    ].join(" ").toLocaleLowerCase().includes(normalizedTableFilter)),
   );
   const tablePageCount = Math.max(1, Math.ceil(filteredDictionaries.length / tablePageSize));
   const currentTablePage = Math.min(tablePage, tablePageCount);
@@ -397,9 +391,7 @@ export function CompareView() {
 
       <section className="space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold">
-            Tablas del diccionario local ({filteredDictionaries.length}{tableFilter ? ` de ${dictionaries.length}` : ""})
-          </h3>
+          <h3 className="text-sm font-semibold">Tablas disponibles ({filteredDictionaries.length})</h3>
           <div className="flex flex-wrap gap-2">
             <label className="fin-field relative w-full min-w-48 sm:w-60">
               <span className="sr-only">Buscar tablas</span>
@@ -437,11 +429,13 @@ export function CompareView() {
               className="btn btn-xs"
               disabled={filteredDictionaries.length === 0}
               title={normalizedTableFilter ? "Selecciona todas las tablas que coinciden con el filtro" : "Selecciona todas las tablas"}
-              onClick={() => setSelectedTables(filteredDictionaries.map((dictionary) => dictionary.table))}
+              onClick={() => setSelectedTables((current) => Array.from(new Set([
+                ...current,
+                ...filteredDictionaries.map((dictionary) => dictionary.table),
+              ])))}
             >
-              {normalizedTableFilter ? "Seleccionar filtradas" : "Seleccionar todas"} ({filteredDictionaries.length})
+              {normalizedTableFilter ? "Seleccionar filtradas" : "Seleccionar disponibles"} ({filteredDictionaries.length})
             </button>
-            <button id="btnView_compare_clear" type="button" className="btn btn-xs" onClick={() => setSelectedTables([])}>Limpiar selección</button>
             <button
               id="btnSave_compare_run"
               type="button"
@@ -454,12 +448,42 @@ export function CompareView() {
             </button>
           </div>
         </div>
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h4 className="text-sm font-semibold">Seleccionadas ({selectedDictionaries.length})</h4>
+            <button
+              id="btnView_compare_clear"
+              type="button"
+              className="btn btn-xs"
+              disabled={selectedDictionaries.length === 0}
+              onClick={() => setSelectedTables([])}
+            >
+              Limpiar selección
+            </button>
+          </div>
+          {selectedDictionaries.length > 0 ? (
+            <div className="max-h-[min(30vh,20rem)] overflow-auto rounded-lg border">
+              <table className="table table-xs table-pin-rows">
+                <thead><tr><th>Quitar</th><th>Tabla</th><th>Descripción</th><th>Columnas</th><th>Clave</th></tr></thead>
+                <tbody>{selectedDictionaries.map((dictionary) => (
+                  <tr key={dictionary.table}>
+                    <td><input type="checkbox" className="checkbox checkbox-sm" checked aria-label={`Quitar ${dictionary.table} de seleccionadas`} onChange={() => setSelectedTables((current) => current.filter((table) => table !== dictionary.table))} /></td>
+                    <td className="font-code">{dictionary.table}</td>
+                    <td>{dictionary.tableDescription || "—"}</td>
+                    <td>{dictionary.columns?.length ?? 0}</td>
+                    <td className="font-code">{dictionary.keyColumns?.join(", ") || "—"}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+          ) : <p className="fin-muted text-xs">Las tablas elegidas para comparar aparecerán aquí.</p>}
+        </div>
         <div className="max-h-[min(60vh,40rem)] overflow-auto rounded-lg border">
           <table className="table table-xs table-pin-rows">
-            <thead><tr><th>Seleccionar</th><th>Tabla</th><th>Descripción</th><th>Columnas</th><th>Clave</th></tr></thead>
+            <thead><tr><th>Agregar</th><th>Tabla</th><th>Descripción</th><th>Columnas</th><th>Clave</th></tr></thead>
             <tbody>{visibleDictionaries.map((dictionary) => (
               <tr key={dictionary.table}>
-                <td><input type="checkbox" className="checkbox checkbox-sm" checked={selectedTables.includes(dictionary.table)} onChange={(event) => setSelectedTables((current) => event.target.checked ? [...current, dictionary.table] : current.filter((table) => table !== dictionary.table))} /></td>
+                <td><input type="checkbox" className="checkbox checkbox-sm" checked={false} onChange={() => setSelectedTables((current) => [...current, dictionary.table])} aria-label={`Agregar ${dictionary.table} a seleccionadas`} /></td>
                 <td className="font-code">{dictionary.table}</td>
                 <td>{dictionary.tableDescription || "—"}</td>
                 <td>{dictionary.columns?.length ?? 0}</td>
@@ -776,6 +800,7 @@ function RowComparisonSummary({
               <th>Registros origen</th>
               <th>Registros destino</th>
               <th>Diferencia</th>
+              <th>Diferencias %</th>
               <th>Cambiadas</th>
               <th>Solo origen</th>
               <th>Solo destino</th>
@@ -784,6 +809,14 @@ function RowComparisonSummary({
           <tbody>
             {results.map((result) => {
               const delta = result.rowDelta;
+              const differencePercent = delta ? calculateDifferencePercent(delta) : null;
+              const differenceTone = differencePercent == null
+                ? ""
+                : differencePercent > 50
+                  ? "bg-red-100 text-red-800"
+                  : differencePercent > 10
+                    ? "bg-amber-100 text-amber-900"
+                    : "bg-emerald-100 text-emerald-800";
               const dictionary = dictionaries.find((item) => item.table === result.table);
               const stateBase = {
                 rowDelta: delta,
@@ -815,6 +848,19 @@ function RowComparisonSummary({
                   <td className="dc-origin">{formatCount(result.sourceCount)}</td>
                   <td className="dc-target">{formatCount(result.targetCount)}</td>
                   <td>{formatCount(result.volumeDelta)}</td>
+                  <td>
+                    {differencePercent == null ? "—" : (
+                      <span
+                        className={`inline-flex rounded-md px-2 py-1 font-semibold tabular-nums ${differenceTone}`}
+                        title={delta?.truncated
+                          ? "Porcentaje sobre las filas leídas; la comparación alcanzó el límite configurado."
+                          : "Porcentaje de filas cambiadas o exclusivas respecto de las unidades comparadas."}
+                        aria-label={`Diferencias: ${formatPercent(differencePercent)}${delta?.truncated ? ", comparación truncada por límite" : ""}`}
+                      >
+                        {delta?.truncated ? "~" : ""}{formatPercent(differencePercent)}
+                      </span>
+                    )}
+                  </td>
                   <DifferenceLink kind="changed" count={delta?.changed ?? 0} stateBase={stateBase} />
                   <DifferenceLink kind="onlyInSource" count={delta?.onlyInSource ?? 0} stateBase={stateBase} />
                   <DifferenceLink kind="onlyInTarget" count={delta?.onlyInTarget ?? 0} stateBase={stateBase} />
@@ -872,6 +918,20 @@ function formatLocalPrimaryKey(dictionaries: DictionarySummary[], table: string)
 
 function formatCount(value: number | undefined): string {
   return value == null ? "—" : formatNumber(value);
+}
+
+function calculateDifferencePercent(delta: RowDelta): number {
+  const pairedRows = Math.max(0, Math.min(
+    delta.sourceRows - delta.onlyInSource,
+    delta.targetRows - delta.onlyInTarget,
+  ));
+  const comparedRows = delta.sourceRows + delta.targetRows - pairedRows;
+  const differingRows = delta.changed + delta.onlyInSource + delta.onlyInTarget;
+  return comparedRows === 0 ? 0 : (differingRows / comparedRows) * 100;
+}
+
+function formatPercent(value: number): string {
+  return `${new Intl.NumberFormat("es-CL", { maximumFractionDigits: 1 }).format(value)}%`;
 }
 
 function formatBytes(value: number | undefined, signed = false): string {

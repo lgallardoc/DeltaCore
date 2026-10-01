@@ -69,6 +69,26 @@ The script updates dictionaries already stored in SQLite. Tables listed in the C
 For live IBM i comparisons, primary-key lookup reads constraint type from
 `QSYS2.SYSCST` and ordered key columns from `QSYS2.SYSKEYCST`.
 
+### FLAG fields in local dictionaries
+
+`scripts/az7dbflags.csv` lists table/field pairs to mark as FLAG in dictionaries
+already stored in SQLite. Preview the matches and missing pairs without writing:
+
+```bash
+npm run update:dictionary-flags -- --dry-run
+```
+
+Apply the updates locally with a timestamped database backup:
+
+```bash
+npm run update:dictionary-flags
+```
+
+Only existing table/field pairs are marked; missing pairs are reported and
+skipped. Existing FLAG marks and all other dictionary metadata are preserved.
+Stop the application before applying the updates. To update another SQLite
+database, pass `--db <path>`.
+
 ## Network configuration (single source: `.env`)
 
 Copy `.env.example` to `.env`. Configure host/IP, port and public URL in the
@@ -134,6 +154,8 @@ Package manager: **npm**. Workspaces are declared in the root `package.json`, an
 | `npm run init:db` | SQLite schema/seed |
 | `npm run update:dictionary-keys -- --dry-run` | Preview local PK changes using `scripts/az7dbkeys.csv` |
 | `npm run update:dictionary-keys` | Apply local PK changes with a backup |
+| `npm run update:dictionary-flags -- --dry-run` | Preview FLAG updates using `scripts/az7dbflags.csv` |
+| `npm run update:dictionary-flags` | Mark listed existing dictionary fields as FLAG with a backup |
 | `npm run cli -- list-schemas` | Schemas assigned to a DSN (`*LIBL*`) and catalog presence |
 | `npm run cli -- list-tables` | Tables in those schemas (`schema.table`) |
 | `npm run sync:fdesa01` | Sync the project to IBM i and restore `apps/backend/node_modules/odbc` from `$HOME/odbc.tar` |
@@ -152,12 +174,15 @@ steps in order:
 4. Removes remote `/nodeapp/DeltaCore/apps/backend/node_modules/odbc`.
 5. Extracts remote `$HOME/odbc.tar` into the backend workspace dependencies.
 
-The project sync includes `scripts/update-dictionary-keys.mjs` and its
-`scripts/az7dbkeys.csv` input. It deliberately preserves the remote SQLite
-database. After deployment, preview PK changes on fdesa01 with
-`npm run update:dictionary-keys -- --dry-run`; stop the application, apply with
-`npm run update:dictionary-keys`, then restart the service. The script creates
-a timestamped backup beside the remote database.
+The project sync includes the dictionary update scripts and their CSV inputs.
+It deliberately preserves the remote SQLite database. After deployment,
+preview PK and FLAG changes on fdesa01 with
+`npm run update:dictionary-keys -- --dry-run` and
+`npm run update:dictionary-flags -- --dry-run`; stop the application, apply the
+respective commands, then restart the service. Both scripts create timestamped
+backups beside the remote database. FLAG updates use
+`scripts/az7dbflags.csv`, marking only table/field pairs already present in the
+remote dictionary.
 
 The sync uses `--delete` but does not copy any local `node_modules` directory;
 it preserves remote `.env`, `.env.Deltacore`, all remote `node_modules`
@@ -321,7 +346,7 @@ Keycloak lab: `http://localhost:5173` (user `developer` / `dev123`).
 | `/profiles` | Profile CRUD and permissions by module/action |
 | `/users` | Local user data and one-profile assignment |
 
-The comparison selector lists local dictionaries from the origin DSN with their table descriptions, column counts, and saved keys. Selected tables are placed first in the list and the execution button remains disabled until at least one table is selected. Row compare uses the saved key for each selected table; if no key is saved, the engine uses catalog PK, then all columns. Result headers use dictionary descriptions when present.
+The comparison selector lists local dictionaries from the origin DSN with their table descriptions, column counts, and saved keys. Selected tables remain in a separate, always-visible section while available tables stay independently filtered and paginated. The execution button remains disabled until at least one table is selected. Row compare uses the saved key for each selected table; if no key is saved, the engine uses catalog PK, then all columns. Result headers use dictionary descriptions when present.
 
 ### Schema comparison UI
 
@@ -370,7 +395,7 @@ The migrations preserve existing `biz_*` data.
 
 Volume returns a consolidated table with one row per selected table: description, origin and target record counts, record delta, origin and target physical sizes, and size delta. IBM i physical size comes from `QSYS2.SYSTABLESTAT.DATA_SIZE` and is presented using Chilean numeric formatting.
 
-Row comparison returns a consolidated table with record counts and links for changed rows, rows only in origin, and rows only in target. Each link opens a detail page for that table and category. Changed-row details display the origin value on the first line and target value on the second line; changed cells carry an alert marker. The first key column remains fixed while scrolling. Detail pages resolve the local source dictionary and source metadata again so current table/field descriptions and assigned DSN names are visible. Changed-row details can be filtered by one or more PrimaryKey values using case-insensitive partial matches; filters combine across key columns and the SQL generator uses only the visible rows.
+Row comparison returns a consolidated table with record counts, a difference percentage per table, and links for changed rows, rows only in origin, and rows only in target. The percentage counts changed and unmatched rows against compared row pairs (each pair once), marks values above 50% red and above 10% yellow, and uses green otherwise. A `~` marks results whose comparison reached the configured row limit. Each link opens a detail page for that table and category. Changed-row details display the origin value on the first line and target value on the second line; changed cells carry an alert marker. The first key column remains fixed while scrolling. Detail pages resolve the local source dictionary and source metadata again so current table/field descriptions and assigned DSN names are visible. Changed-row details can be filtered by one or more PrimaryKey values using case-insensitive partial matches; filters combine across key columns and the SQL generator uses only the visible rows.
 
 Dictionary columns can be marked as FLAG. In changed-row details, **Parsear** opens a per-row modal with each flag position, its origin and target values, and the description/valid values from `AZBASWIT.AZUFD` on DSN `db2-az7-p9-dev`. The modal can show all positions or only differences; differing values are highlighted. Positions with values but no AZUFD definition remain visible.
 
