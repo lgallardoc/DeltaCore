@@ -28,7 +28,7 @@ export function LoggedOutView({ isLoggedOut = true }: { isLoggedOut?: boolean })
     <main className="auth-login-page">
       <section className="auth-login-panel" aria-labelledby="auth-login-title">
         <header className="auth-login-brand">
-          <img src="/icono_DeltaCore.png" alt="" />
+          <img src={`${import.meta.env.BASE_URL}icono_DeltaCore.png`} alt="" />
           <div>
             <span>DELTACORE</span>
             <p>Comparación y análisis de datos</p>
