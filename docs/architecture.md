@@ -384,6 +384,23 @@ comparten `createBackendRuntime()`.
 - **`apps/frontend`**: la autenticación usa el flujo de código de autorización (Authorization Code) + PKCE de Keycloak. `VITE_HTTP_PREFIX` define el subdirectorio de producción y antepone el prefijo a las llamadas a la API; en IBM i se utiliza `/deltacore/api` detrás de Nginx.
 - **Infraestructura**: Compose de Keycloak, generador Db2 AZ7 y controlador unixODBC en `infrastructure/odbc`.
 
+### Acceso web y ciclo de autenticación
+
+`AuthProvider` inicializa `keycloak-js` con `check-sso`: comprueba si ya existe
+una sesión sin forzar una redirección al proveedor. Mientras se inicializa, las
+rutas protegidas no muestran contenido. Si no hay sesión, `ProtectedRoute`
+presenta la pantalla de acceso DeltaCore; el usuario inicia el flujo OIDC al
+seleccionar **Iniciar sesión**. Al volver de Keycloak se recupera la ruta que
+originó el acceso, incluidos sus parámetros de búsqueda y fragmento. Las rutas
+raíz y `/logged-out` usan `/compare` como destino predeterminado. Si ya existe
+una sesión, la aplicación continúa directamente a la ruta solicitada.
+
+La acción de logout limpia el token local y navega a `/logged-out`, donde se
+muestra el mismo formulario con un mensaje de sesión finalizada. El flujo usa
+Authorization Code + PKCE S256; la SPA no almacena un secreto de cliente. Para
+las URI y usuarios de laboratorio, consultar
+[`infrastructure/sso/README.md`](../infrastructure/sso/README.md).
+
 El SQL específico de cada motor no se escribe en TypeScript. Se carga desde
 `apps/backend/src/infrastructure/sql-dialects/<engine>/<feature>.sql` y admite
 interpolación mediante `{{var}}`.

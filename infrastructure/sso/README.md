@@ -26,6 +26,17 @@ client secret.
 
 SPA routes after login: `/compare`, `/dictionary`, `/catalog`, `/jobs`, `/profiles`, `/users`.
 
+## Browser sign-in flow
+
+The DeltaCore SPA initializes Keycloak with `check-sso`, which checks for an
+existing session without automatically redirecting a signed-out user. The
+protected route then displays the DeltaCore access screen. Selecting
+**Iniciar sesión** starts the Authorization Code + PKCE S256 flow. After
+Keycloak returns, the SPA restores the requested route, including its query
+string and fragment; `/` and `/logged-out` default to `/compare`. Logging out
+shows the access screen with a session-ended message. An existing Keycloak
+session continues directly into the requested route.
+
 ## Local RBAC validation
 
 The local realm includes these users, all with password `dev123`:

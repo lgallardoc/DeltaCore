@@ -1,6 +1,7 @@
-import { useEffect, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { AccessDenied } from "./AccessDenied";
 import { useAuth } from "./AuthProvider";
+import { LoggedOutView } from "./LoggedOutView";
 import { usePermissions } from "./usePermissions";
 
 export interface ProtectedRouteProps {
@@ -9,17 +10,15 @@ export interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children, moduleName }: ProtectedRouteProps) {
-  const { isInitialized, isAuthenticated, login } = useAuth();
+  const { isInitialized, isAuthenticated } = useAuth();
   const { canRead, isResolved } = usePermissions(moduleName);
 
-  useEffect(() => {
-    if (isInitialized && !isAuthenticated) {
-      void login();
-    }
-  }, [isInitialized, isAuthenticated, login]);
-
-  if (!isInitialized || !isAuthenticated) {
+  if (!isInitialized) {
     return null;
+  }
+
+  if (!isAuthenticated) {
+    return <LoggedOutView isLoggedOut={false} />;
   }
 
   if (moduleName && !isResolved) {

@@ -162,6 +162,16 @@ Package manager: **npm**. Workspaces are declared in the root `package.json`, an
 
 Stop Node + Docker with `npm stop`. Only the UI/API: `npm run stop:apps`. Then start again with `npm run dev` (apps) or `npm start` (infra + apps).
 
+### Web sign-in
+
+When no Keycloak session is available, the SPA displays the DeltaCore access
+screen instead of redirecting automatically. Select **Iniciar sesión** to start
+the Keycloak Authorization Code + PKCE flow. After authentication, the SPA
+returns to the route that was requested; opening `/` or `/logged-out` returns
+to `/compare`. Logging out displays the same access screen with a session-ended
+message. The local Keycloak client and test accounts are documented in
+[infrastructure/sso/README.md](infrastructure/sso/README.md).
+
 ### IBM i synchronization
 
 Run `npm run sync:fdesa01` from the repository root. The script performs these

@@ -77,6 +77,102 @@ span {
   color: var(--muted);
 }
 
+.auth-login-page {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(29, 78, 216, 0.08), transparent 52%),
+    var(--bg);
+}
+
+.auth-login-panel {
+  width: min(100%, 440px);
+  padding: 32px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 18px 50px rgba(24, 38, 61, 0.09);
+}
+
+.auth-login-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--line);
+}
+
+.auth-login-brand img {
+  width: 52px;
+  height: 52px;
+  border-radius: 8px;
+  object-fit: contain;
+}
+
+.auth-login-brand span {
+  color: var(--ink);
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.auth-login-brand p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.auth-login-copy {
+  padding: 28px 0 24px;
+}
+
+.auth-login-eyebrow {
+  margin: 0 0 8px;
+  color: var(--brand);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.auth-login-copy h1 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 1.625rem;
+  font-weight: 700;
+}
+
+.auth-login-copy > p:last-child {
+  margin: 8px 0 0;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.auth-login-button {
+  width: 100%;
+  min-height: 44px;
+  height: 44px;
+  gap: 9px;
+}
+
+.auth-login-security {
+  margin: 16px 0 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+@media (max-width: 480px) {
+  .auth-login-page {
+    padding: 16px;
+  }
+
+  .auth-login-panel {
+    padding: 24px;
+  }
+}
+
 .fin-primary {
   color: var(--brand);
 }

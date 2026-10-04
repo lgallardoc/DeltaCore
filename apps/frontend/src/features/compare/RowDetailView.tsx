@@ -1,4 +1,4 @@
-import { ArrowLeft, CircleAlert, Clipboard, Eye, FileCode2, X } from "lucide-react";
+import { ArrowLeft, CircleAlert, Clipboard, Download, Eye, FileCode2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import type { CSSProperties } from "react";
@@ -560,6 +560,33 @@ function SqlScriptModal({
     await navigator.clipboard.writeText(script);
   }
 
+  function downloadScripts() {
+    const content = [
+      "-- DeltaCore: homologacion y rollback",
+      `-- Tabla destino: ${targetSchema}.${table}`,
+      "-- Revise ambas secciones antes de ejecutar. Ejecute solo HOMOLOGACION o ROLLBACK, nunca ambas consecutivamente.",
+      "-- El rollback restaura los valores originales del destino para las filas incluidas.",
+      "",
+      "-- ============================================================",
+      "-- HOMOLOGACION: actualiza el destino con los valores de origen",
+      "-- ============================================================",
+      applyScript,
+      "",
+      "-- ============================================================",
+      "-- ROLLBACK: restaura los valores originales del destino",
+      "-- Ejecutar solo si se requiere revertir la homologacion.",
+      "-- ============================================================",
+      rollbackScript,
+    ].join("\n");
+    const blob = new Blob([content], { type: "application/sql;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${table.replace(/[^A-Za-z0-9_-]/g, "_")}_homologacion_rollback.sql`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-label="Scripts SQL de homologación">
       <div className="fin-panel flex max-h-[85vh] w-full max-w-6xl flex-col rounded-lg border p-4">
@@ -573,6 +600,13 @@ function SqlScriptModal({
         <div role="note" className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
           <strong>Advertencia:</strong> La ejecución de la homologación queda sujeta al criterio del responsable de realizarla, quien deberá verificar los riesgos asociados y tomar las precauciones correspondientes, especialmente ante certificaciones o pruebas que se encuentren en ejecución.
         </div>
+        {targetSchema && !busy && !error ? (
+          <div className="mb-3 flex justify-end">
+            <button id="btnSave_rows_sql_download" type="button" className="btn btn-sm" onClick={downloadScripts}>
+              <Download size={14} /> Descargar .sql
+            </button>
+          </div>
+        ) : null}
         {busy ? <p className="py-8 text-center text-sm">Resolviendo esquema destino...</p> : null}
         {error ? <p className="py-8 text-center text-sm text-red-700">{error}</p> : null}
         {targetSchema && !busy && !error ? (
