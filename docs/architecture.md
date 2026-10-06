@@ -506,8 +506,13 @@ Las columnas FLAG se marcan en el diccionario, se interpretan por posición y se
 complementan con descripciones y valores válidos de AZUFD. El modal FLAG puede
 filtrar solo las diferencias y conserva las posiciones con valores aunque no
 tengan definición. Los scripts SQL de homologación se generan únicamente para
-las filas visibles; antes de copiar un script, el modal advierte sobre la
-responsabilidad del operador y la certificación/prueba activa.
+las filas visibles. Las tres categorías de detalle (cambiadas, solo en origen y
+solo en destino) muestran los DSN y nombres seleccionados de ambos lados y un
+aviso de que validar la información y los riesgos antes de ejecutar es
+responsabilidad del usuario. Cada script SQL comienza con comentarios de
+advertencia, origen vs. destino y tabla destino. En la descarga `.sql`, el bloque
+rollback queda comentado línea por línea; el panel del modal conserva el SQL
+activo para revisión y copia explícita.
 
 Rutas principales del cliente web: `/compare`, `/dictionary`, `/catalog` y `/jobs`.
 

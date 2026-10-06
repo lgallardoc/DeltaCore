@@ -1,7 +1,7 @@
 {
   "name": "deltacore",
   "private": true,
-  "version": "1.2.6",
+  "version": "1.2.7",
   "description": "Enterprise DB Metadata Reconciliator",
   "workspaces": [
     "apps/*",

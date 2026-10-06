@@ -52,6 +52,21 @@ export function RowDetailView() {
   const [scriptError, setScriptError] = useState("");
 
   useEffect(() => {
+    if (!state) {
+      return;
+    }
+    setLabels(state.labels ?? {});
+    setFlaggedColumns(state.flagColumns ?? []);
+    setTableDescription(state.tableDescription ?? "");
+    setSourceName(state.sourceName ?? "");
+    setTargetName(state.targetName ?? "");
+    setTargetSchema(state.targetSchema ?? "");
+    setShowScript(false);
+    setScriptRows([]);
+    setScriptError("");
+  }, [state]);
+
+  useEffect(() => {
     setFlagDefinitions({});
     setFlagSourceRowCount(null);
     setFlaggedColumns(state?.flagColumns ?? []);
@@ -126,8 +141,12 @@ export function RowDetailView() {
           return;
         }
         const sources = data.sources ?? [];
-        setSourceName(sources.find((source) => source.dsn === state.sourceDsn)?.name ?? "");
-        setTargetName(sources.find((source) => source.dsn === state.targetDsn)?.name ?? "");
+        setSourceName(
+          state.sourceName ?? sources.find((source) => source.dsn === state.sourceDsn)?.name ?? "",
+        );
+        setTargetName(
+          state.targetName ?? sources.find((source) => source.dsn === state.targetDsn)?.name ?? "",
+        );
       })
       .catch(() => undefined);
     return () => {
@@ -164,6 +183,9 @@ export function RowDetailView() {
         <p className="fin-muted text-sm">{tableDescription || "Sin descripción de tabla"}</p>
         <p className="fin-muted mt-1 text-sm">{rows.length} registros dentro del límite de comparación.</p>
       </div>
+      <p role="note" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+        <strong>Advertencia:</strong> La ejecución del script es responsabilidad del usuario que utiliza esta información, quien debe validar su contenido y los riesgos asociados antes de ejecutarlo.
+      </p>
       {detailState.kind === "changed" ? (
         <ChangedRowsTable
           rows={rows as RowChange[]}
@@ -184,6 +206,10 @@ export function RowDetailView() {
           rows={rows as RowValueMap[]}
           columns={detailState.rowDelta.comparedColumns}
           labels={labelMap}
+          sourceDsn={detailState.sourceDsn}
+          targetDsn={detailState.targetDsn}
+          sourceName={sourceName}
+          targetName={targetName}
           canRun={canRun && detailState.rowDelta.keyColumns.length > 0}
           onGenerateScript={(visibleRows) => void openScript(detailState.kind, visibleRows)}
         />
@@ -192,6 +218,10 @@ export function RowDetailView() {
         <SqlScriptModal
           table={detailState.table ?? ""}
           targetSchema={targetSchema}
+          sourceDsn={detailState.sourceDsn}
+          targetDsn={detailState.targetDsn}
+          sourceName={sourceName}
+          targetName={targetName}
           rows={scriptRows}
           keyColumns={detailState.rowDelta.keyColumns}
           busy={scriptBusy}
@@ -535,6 +565,10 @@ function FlagParseModal({
 function SqlScriptModal({
   table,
   targetSchema,
+  sourceDsn,
+  targetDsn,
+  sourceName,
+  targetName,
   rows,
   keyColumns,
   busy,
@@ -543,6 +577,10 @@ function SqlScriptModal({
 }: {
   table: string;
   targetSchema: string;
+  sourceDsn?: string;
+  targetDsn?: string;
+  sourceName: string;
+  targetName: string;
   rows: ScriptRow[];
   keyColumns: string[];
   busy: boolean;
@@ -550,10 +588,10 @@ function SqlScriptModal({
   onClose: () => void;
 }) {
   const applyScript = targetSchema
-    ? buildRowScript(table, targetSchema, rows, keyColumns, "apply")
+    ? buildRowScript(table, targetSchema, rows, keyColumns, "apply", sourceDsn, targetDsn, sourceName, targetName)
     : "";
   const rollbackScript = targetSchema
-    ? buildRowScript(table, targetSchema, rows, keyColumns, "rollback")
+    ? buildRowScript(table, targetSchema, rows, keyColumns, "rollback", sourceDsn, targetDsn, sourceName, targetName)
     : "";
 
   async function copyScript(script: string) {
@@ -561,11 +599,15 @@ function SqlScriptModal({
   }
 
   function downloadScripts() {
+    const commentedRollbackScript = rollbackScript
+      .split("\n")
+      .map((line) => (line ? `-- ${line}` : "--"))
+      .join("\n");
     const content = [
-      "-- DeltaCore: homologacion y rollback",
+      ...buildScriptHeader(table, targetSchema, sourceDsn, targetDsn, sourceName, targetName),
+      "-- Archivo con script de homologacion y rollback.",
       `-- Tabla destino: ${targetSchema}.${table}`,
-      "-- Revise ambas secciones antes de ejecutar. Ejecute solo HOMOLOGACION o ROLLBACK, nunca ambas consecutivamente.",
-      "-- El rollback restaura los valores originales del destino para las filas incluidas.",
+      "-- El bloque ROLLBACK se entrega comentado; descomentelo solo si necesita revertir los cambios.",
       "",
       "-- ============================================================",
       "-- HOMOLOGACION: actualiza el destino con los valores de origen",
@@ -576,7 +618,7 @@ function SqlScriptModal({
       "-- ROLLBACK: restaura los valores originales del destino",
       "-- Ejecutar solo si se requiere revertir la homologacion.",
       "-- ============================================================",
-      rollbackScript,
+      commentedRollbackScript,
     ].join("\n");
     const blob = new Blob([content], { type: "application/sql;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -635,6 +677,10 @@ function buildRowScript(
   rows: ScriptRow[],
   keyColumns: string[],
   action: "apply" | "rollback",
+  sourceDsn?: string,
+  targetDsn?: string,
+  sourceName = "",
+  targetName = "",
 ): string {
   const target = `${sqlIdentifier(targetSchema)}.${sqlIdentifier(table)}`;
   const statements = rows.map(({ kind, row: data }) => {
@@ -663,7 +709,29 @@ function buildRowScript(
     return `DELETE FROM ${target}\nWHERE\n${where};`;
   });
   const title = action === "apply" ? "Homologar destino con origen" : "Rollback a valores originales de destino";
-  return [`-- ${title}`, ...statements, "COMMIT;"].join("\n\n");
+  return [
+    ...buildScriptHeader(table, targetSchema, sourceDsn, targetDsn, sourceName, targetName),
+    `-- ${title}`,
+    ...statements,
+    "COMMIT;",
+  ].join("\n\n");
+}
+
+function buildScriptHeader(
+  table: string,
+  targetSchema: string,
+  sourceDsn?: string,
+  targetDsn?: string,
+  sourceName = "",
+  targetName = "",
+): string[] {
+  const source = [sourceDsn || "no disponible", sourceName].filter(Boolean).join(" · ");
+  const target = [targetDsn || "no disponible", targetName].filter(Boolean).join(" · ");
+  return [
+    "-- ADVERTENCIA: La ejecución de este script es responsabilidad del usuario que utiliza esta información; debe validar su contenido antes de ejecutarlo.",
+    `-- Origen vs. destino: Origen (${source}) -> Destino (${target}).`,
+    `-- Tabla destino: ${targetSchema}.${table}`,
+  ];
 }
 
 function sqlIdentifier(value: string): string {
@@ -682,18 +750,30 @@ function SingleSideRowsTable({
   rows,
   columns,
   labels,
+  sourceDsn,
+  targetDsn,
+  sourceName,
+  targetName,
   canRun,
   onGenerateScript,
 }: {
   rows: RowValueMap[];
   columns: string[];
   labels: Map<string, string>;
+  sourceDsn?: string;
+  targetDsn?: string;
+  sourceName?: string;
+  targetName?: string;
   canRun: boolean;
   onGenerateScript: (visibleRows: RowValueMap[]) => void;
 }) {
   return (
     <>
-    <div className="flex justify-end">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs">
+        <span className="dc-origin font-semibold">Origen ({sourceDsn || "no disponible"}{sourceName ? ` · ${sourceName}` : ""}): primera línea</span>
+        <span className="dc-target font-semibold">Destino ({targetDsn || "no disponible"}{targetName ? ` · ${targetName}` : ""}): segunda línea</span>
+      </div>
       <button id="btnSave_rows_sql" type="button" className="btn btn-sm" onClick={() => onGenerateScript(rows)} disabled={!canRun || rows.length === 0} title="Generar SQL y rollback para las filas visibles">
         <FileCode2 size={14} /> Generar SQL
       </button>
